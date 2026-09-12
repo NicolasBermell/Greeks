@@ -130,29 +130,111 @@ def greeks_european_digital_call(params: dict[str, float]) -> dict[str, float]:
 
     return results
 
-# Barrier Option (Up-and-Out Call)
-import math
+# Barrier Option (European Terminal Barrier Up-and-Out Call: (S_T - K)^+ * 1_{S_T <= H})
+def price_barrier_up_and_out_call(S: float, K: float, T: float, r: float, q: float, sigma: float, H: float) -> float:
+    r"""Exact analytical price of a European Terminal Barrier Up-and-Out Call option.
+
+    Payoff at maturity T:
+        Payoff = (S_T - K)^+ \cdot \mathbf{1}_{S_T \le H}
+               = (S_T - K)^+ - (S_T - H)^+ - (H - K) \cdot \mathbf{1}_{S_T > H}
+
+    This depends purely on the terminal price S_T at maturity (not on continuous path monitoring).
+
+    Args:
+        S (float): Current spot price ($S > 0$).
+        K (float): Strike price ($K > 0$).
+        T (float): Time to maturity in years ($T > 0$).
+        r (float): Annualized risk-free interest rate.
+        q (float): Annualized continuous dividend yield.
+        sigma (float): Annualized volatility ($\sigma > 0$).
+        H (float): Upper barrier level ($H > K$).
+
+    Returns:
+        float: Option price. Returns 0.0 if K >= H or if S <= 0, T <= 0, sigma <= 0.
+    """
+    if K >= H or S <= 0.0 or T <= 0.0 or sigma <= 0.0:
+        return 0.0
+
+    vol_sqrt_t = sigma * np.sqrt(T)
+    d1_k = (np.log(S / K) + (r - q + 0.5 * sigma**2) * T) / vol_sqrt_t
+    d1_h = (np.log(S / H) + (r - q + 0.5 * sigma**2) * T) / vol_sqrt_t
+    d2_k = d1_k - vol_sqrt_t
+    d2_h = d1_h - vol_sqrt_t
+
+    term1 = S * np.exp(-q * T) * (norm.cdf(d1_k) - norm.cdf(d1_h))
+    term2 = K * np.exp(-r * T) * (norm.cdf(d2_k) - norm.cdf(d2_h))
+
+    return float(term1 - term2)
+
 
 def delta_barrier_up_and_out_call(S: float, K: float, T: float, r: float, q: float, sigma: float, H: float) -> float:
-    """Exact analytical Delta for European Up-and-Out Call."""
-    if S >= H or K >= H:
+    r"""Exact analytical Delta ($\partial V / \partial S$) for European Terminal Barrier Up-and-Out Call.
+
+    Delta = e^{-qT} [\Phi(d_1(S, K)) - \Phi(d_1(S, H))] - \frac{(H - K) e^{-rT} \phi(d_2(S, H))}{S \sigma \sqrt{T}}
+    """
+    if K >= H or S <= 0.0 or T <= 0.0 or sigma <= 0.0:
         return 0.0
-    return 2*K*(H/S)**(2*(-q + r - 1/2*sigma**2)/sigma**2)*((1/2)*math.erf((1/2)*math.sqrt(2)*(math.sqrt(T)*sigma*(1 + (-q + r - 1/2*sigma**2)/sigma**2) - math.sqrt(T)*sigma + math.log(H/S)/(math.sqrt(T)*sigma))) + 1/2)*(-q + r - 1/2*sigma**2)*math.exp(-T*r)/(S*sigma**2) - 2*K*(H/S)**(2*(-q + r - 1/2*sigma**2)/sigma**2)*((1/2)*math.erf((1/2)*math.sqrt(2)*(math.sqrt(T)*sigma*(1 + (-q + r - 1/2*sigma**2)/sigma**2) - math.sqrt(T)*sigma + math.log(H**2/(K*S))/(math.sqrt(T)*sigma))) + 1/2)*(-q + r - 1/2*sigma**2)*math.exp(-T*r)/(S*sigma**2) - 1/2*math.sqrt(2)*K*(H/S)**(2*(-q + r - 1/2*sigma**2)/sigma**2)*math.exp(-T*r)*math.exp(-1/2*(math.sqrt(T)*sigma*(1 + (-q + r - 1/2*sigma**2)/sigma**2) - math.sqrt(T)*sigma + math.log(H**2/(K*S))/(math.sqrt(T)*sigma))**2)/(math.sqrt(math.pi)*S*math.sqrt(T)*sigma) + (1/2)*math.sqrt(2)*K*(H/S)**(2*(-q + r - 1/2*sigma**2)/sigma**2)*math.exp(-T*r)*math.exp(-1/2*(math.sqrt(T)*sigma*(1 + (-q + r - 1/2*sigma**2)/sigma**2) - math.sqrt(T)*sigma + math.log(H/S)/(math.sqrt(T)*sigma))**2)/(math.sqrt(math.pi)*S*math.sqrt(T)*sigma) - 1/2*math.sqrt(2)*K*math.exp(-T*r)*math.exp(-1/2*(math.sqrt(T)*sigma*(1 + (-q + r - 1/2*sigma**2)/sigma**2) - math.sqrt(T)*sigma + math.log(S/K)/(math.sqrt(T)*sigma))**2)/(math.sqrt(math.pi)*S*math.sqrt(T)*sigma) + (1/2)*math.sqrt(2)*K*math.exp(-T*r)*math.exp(-1/2*(math.sqrt(T)*sigma*(1 + (-q + r - 1/2*sigma**2)/sigma**2) - math.sqrt(T)*sigma + math.log(S/H)/(math.sqrt(T)*sigma))**2)/(math.sqrt(math.pi)*S*math.sqrt(T)*sigma) - (H/S)**(2 + 2*(-q + r - 1/2*sigma**2)/sigma**2)*(2 + 2*(-q + r - 1/2*sigma**2)/sigma**2)*((1/2)*math.erf((1/2)*math.sqrt(2)*(math.sqrt(T)*sigma*(1 + (-q + r - 1/2*sigma**2)/sigma**2) + math.log(H/S)/(math.sqrt(T)*sigma))) + 1/2)*math.exp(-T*q) + (H/S)**(2 + 2*(-q + r - 1/2*sigma**2)/sigma**2)*(2 + 2*(-q + r - 1/2*sigma**2)/sigma**2)*((1/2)*math.erf((1/2)*math.sqrt(2)*(math.sqrt(T)*sigma*(1 + (-q + r - 1/2*sigma**2)/sigma**2) + math.log(H**2/(K*S))/(math.sqrt(T)*sigma))) + 1/2)*math.exp(-T*q) + (H/S)**(2 + 2*(-q + r - 1/2*sigma**2)/sigma**2)*((1/2)*math.erf((1/2)*math.sqrt(2)*(math.sqrt(T)*sigma*(1 + (-q + r - 1/2*sigma**2)/sigma**2) + math.log(H/S)/(math.sqrt(T)*sigma))) + 1/2)*math.exp(-T*q) - (H/S)**(2 + 2*(-q + r - 1/2*sigma**2)/sigma**2)*((1/2)*math.erf((1/2)*math.sqrt(2)*(math.sqrt(T)*sigma*(1 + (-q + r - 1/2*sigma**2)/sigma**2) + math.log(H**2/(K*S))/(math.sqrt(T)*sigma))) + 1/2)*math.exp(-T*q) - ((1/2)*math.erf((1/2)*math.sqrt(2)*(math.sqrt(T)*sigma*(1 + (-q + r - 1/2*sigma**2)/sigma**2) + math.log(S/H)/(math.sqrt(T)*sigma))) + 1/2)*math.exp(-T*q) + ((1/2)*math.erf((1/2)*math.sqrt(2)*(math.sqrt(T)*sigma*(1 + (-q + r - 1/2*sigma**2)/sigma**2) + math.log(S/K)/(math.sqrt(T)*sigma))) + 1/2)*math.exp(-T*q) + (1/2)*math.sqrt(2)*(H/S)**(2 + 2*(-q + r - 1/2*sigma**2)/sigma**2)*math.exp(-T*q)*math.exp(-1/2*(math.sqrt(T)*sigma*(1 + (-q + r - 1/2*sigma**2)/sigma**2) + math.log(H**2/(K*S))/(math.sqrt(T)*sigma))**2)/(math.sqrt(math.pi)*math.sqrt(T)*sigma) - 1/2*math.sqrt(2)*(H/S)**(2 + 2*(-q + r - 1/2*sigma**2)/sigma**2)*math.exp(-T*q)*math.exp(-1/2*(math.sqrt(T)*sigma*(1 + (-q + r - 1/2*sigma**2)/sigma**2) + math.log(H/S)/(math.sqrt(T)*sigma))**2)/(math.sqrt(math.pi)*math.sqrt(T)*sigma) + (1/2)*math.sqrt(2)*math.exp(-T*q)*math.exp(-1/2*(math.sqrt(T)*sigma*(1 + (-q + r - 1/2*sigma**2)/sigma**2) + math.log(S/K)/(math.sqrt(T)*sigma))**2)/(math.sqrt(math.pi)*math.sqrt(T)*sigma) - 1/2*math.sqrt(2)*math.exp(-T*q)*math.exp(-1/2*(math.sqrt(T)*sigma*(1 + (-q + r - 1/2*sigma**2)/sigma**2) + math.log(S/H)/(math.sqrt(T)*sigma))**2)/(math.sqrt(math.pi)*math.sqrt(T)*sigma)
+
+    vol_sqrt_t = sigma * np.sqrt(T)
+    d1_k = (np.log(S / K) + (r - q + 0.5 * sigma**2) * T) / vol_sqrt_t
+    d1_h = (np.log(S / H) + (r - q + 0.5 * sigma**2) * T) / vol_sqrt_t
+    d2_h = d1_h - vol_sqrt_t
+
+    delta = (
+        np.exp(-q * T) * (norm.cdf(d1_k) - norm.cdf(d1_h))
+        - (H - K) * np.exp(-r * T) * norm.pdf(d2_h) / (S * vol_sqrt_t)
+    )
+    return float(delta)
+
 
 def gamma_barrier_up_and_out_call(S: float, K: float, T: float, r: float, q: float, sigma: float, H: float) -> float:
-    """Exact analytical Gamma for European Up-and-Out Call."""
-    if S >= H or K >= H:
+    r"""Exact analytical Gamma ($\partial^2 V / \partial S^2$) for European Terminal Barrier Up-and-Out Call.
+
+    Gamma = \frac{e^{-qT}\phi(d_1(S, K))}{S \sigma \sqrt{T}}
+          - \frac{e^{-qT}\phi(d_1(S, H))}{S \sigma \sqrt{T}}
+          + \frac{(H - K) e^{-rT} \phi(d_2(S, H))}{S^2 \sigma \sqrt{T}} \left( 1 + \frac{d_2(S, H)}{\sigma \sqrt{T}} \right)
+    """
+    if K >= H or S <= 0.0 or T <= 0.0 or sigma <= 0.0:
         return 0.0
-    return -2*K*(H/S)**(2*(-q + r - 1/2*sigma**2)/sigma**2)*((1/2)*math.erf((1/2)*math.sqrt(2)*(math.sqrt(T)*sigma*(1 + (-q + r - 1/2*sigma**2)/sigma**2) - math.sqrt(T)*sigma + math.log(H/S)/(math.sqrt(T)*sigma))) + 1/2)*(-q + r - 1/2*sigma**2)*math.exp(-T*r)/(S**2*sigma**2) + 2*K*(H/S)**(2*(-q + r - 1/2*sigma**2)/sigma**2)*((1/2)*math.erf((1/2)*math.sqrt(2)*(math.sqrt(T)*sigma*(1 + (-q + r - 1/2*sigma**2)/sigma**2) - math.sqrt(T)*sigma + math.log(H**2/(K*S))/(math.sqrt(T)*sigma))) + 1/2)*(-q + r - 1/2*sigma**2)*math.exp(-T*r)/(S**2*sigma**2) - 4*K*(H/S)**(2*(-q + r - 1/2*sigma**2)/sigma**2)*((1/2)*math.erf((1/2)*math.sqrt(2)*(math.sqrt(T)*sigma*(1 + (-q + r - 1/2*sigma**2)/sigma**2) - math.sqrt(T)*sigma + math.log(H/S)/(math.sqrt(T)*sigma))) + 1/2)*(-q + r - 1/2*sigma**2)**2*math.exp(-T*r)/(S**2*sigma**4) + 4*K*(H/S)**(2*(-q + r - 1/2*sigma**2)/sigma**2)*((1/2)*math.erf((1/2)*math.sqrt(2)*(math.sqrt(T)*sigma*(1 + (-q + r - 1/2*sigma**2)/sigma**2) - math.sqrt(T)*sigma + math.log(H**2/(K*S))/(math.sqrt(T)*sigma))) + 1/2)*(-q + r - 1/2*sigma**2)**2*math.exp(-T*r)/(S**2*sigma**4) + (1/2)*math.sqrt(2)*K*(H/S)**(2*(-q + r - 1/2*sigma**2)/sigma**2)*(math.sqrt(T)*sigma*(1 + (-q + r - 1/2*sigma**2)/sigma**2) - math.sqrt(T)*sigma + math.log(H/S)/(math.sqrt(T)*sigma))*math.exp(-T*r)*math.exp(-1/2*(math.sqrt(T)*sigma*(1 + (-q + r - 1/2*sigma**2)/sigma**2) - math.sqrt(T)*sigma + math.log(H/S)/(math.sqrt(T)*sigma))**2)/(math.sqrt(math.pi)*S**2*T*sigma**2) - 1/2*math.sqrt(2)*K*(H/S)**(2*(-q + r - 1/2*sigma**2)/sigma**2)*(math.sqrt(T)*sigma*(1 + (-q + r - 1/2*sigma**2)/sigma**2) - math.sqrt(T)*sigma + math.log(H**2/(K*S))/(math.sqrt(T)*sigma))*math.exp(-T*r)*math.exp(-1/2*(math.sqrt(T)*sigma*(1 + (-q + r - 1/2*sigma**2)/sigma**2) - math.sqrt(T)*sigma + math.log(H**2/(K*S))/(math.sqrt(T)*sigma))**2)/(math.sqrt(math.pi)*S**2*T*sigma**2) - 1/2*math.sqrt(2)*K*(math.sqrt(T)*sigma*(1 + (-q + r - 1/2*sigma**2)/sigma**2) - math.sqrt(T)*sigma + math.log(S/H)/(math.sqrt(T)*sigma))*math.exp(-T*r)*math.exp(-1/2*(math.sqrt(T)*sigma*(1 + (-q + r - 1/2*sigma**2)/sigma**2) - math.sqrt(T)*sigma + math.log(S/H)/(math.sqrt(T)*sigma))**2)/(math.sqrt(math.pi)*S**2*T*sigma**2) + (1/2)*math.sqrt(2)*K*(math.sqrt(T)*sigma*(1 + (-q + r - 1/2*sigma**2)/sigma**2) - math.sqrt(T)*sigma + math.log(S/K)/(math.sqrt(T)*sigma))*math.exp(-T*r)*math.exp(-1/2*(math.sqrt(T)*sigma*(1 + (-q + r - 1/2*sigma**2)/sigma**2) - math.sqrt(T)*sigma + math.log(S/K)/(math.sqrt(T)*sigma))**2)/(math.sqrt(math.pi)*S**2*T*sigma**2) + (1/2)*math.sqrt(2)*K*(H/S)**(2*(-q + r - 1/2*sigma**2)/sigma**2)*math.exp(-T*r)*math.exp(-1/2*(math.sqrt(T)*sigma*(1 + (-q + r - 1/2*sigma**2)/sigma**2) - math.sqrt(T)*sigma + math.log(H**2/(K*S))/(math.sqrt(T)*sigma))**2)/(math.sqrt(math.pi)*S**2*math.sqrt(T)*sigma) - 1/2*math.sqrt(2)*K*(H/S)**(2*(-q + r - 1/2*sigma**2)/sigma**2)*math.exp(-T*r)*math.exp(-1/2*(math.sqrt(T)*sigma*(1 + (-q + r - 1/2*sigma**2)/sigma**2) - math.sqrt(T)*sigma + math.log(H/S)/(math.sqrt(T)*sigma))**2)/(math.sqrt(math.pi)*S**2*math.sqrt(T)*sigma) + (1/2)*math.sqrt(2)*K*math.exp(-T*r)*math.exp(-1/2*(math.sqrt(T)*sigma*(1 + (-q + r - 1/2*sigma**2)/sigma**2) - math.sqrt(T)*sigma + math.log(S/K)/(math.sqrt(T)*sigma))**2)/(math.sqrt(math.pi)*S**2*math.sqrt(T)*sigma) - 1/2*math.sqrt(2)*K*math.exp(-T*r)*math.exp(-1/2*(math.sqrt(T)*sigma*(1 + (-q + r - 1/2*sigma**2)/sigma**2) - math.sqrt(T)*sigma + math.log(S/H)/(math.sqrt(T)*sigma))**2)/(math.sqrt(math.pi)*S**2*math.sqrt(T)*sigma) + 2*math.sqrt(2)*K*(H/S)**(2*(-q + r - 1/2*sigma**2)/sigma**2)*(-q + r - 1/2*sigma**2)*math.exp(-T*r)*math.exp(-1/2*(math.sqrt(T)*sigma*(1 + (-q + r - 1/2*sigma**2)/sigma**2) - math.sqrt(T)*sigma + math.log(H**2/(K*S))/(math.sqrt(T)*sigma))**2)/(math.sqrt(math.pi)*S**2*math.sqrt(T)*sigma**3) - 2*math.sqrt(2)*K*(H/S)**(2*(-q + r - 1/2*sigma**2)/sigma**2)*(-q + r - 1/2*sigma**2)*math.exp(-T*r)*math.exp(-1/2*(math.sqrt(T)*sigma*(1 + (-q + r - 1/2*sigma**2)/sigma**2) - math.sqrt(T)*sigma + math.log(H/S)/(math.sqrt(T)*sigma))**2)/(math.sqrt(math.pi)*S**2*math.sqrt(T)*sigma**3) + (H/S)**(2 + 2*(-q + r - 1/2*sigma**2)/sigma**2)*(2 + 2*(-q + r - 1/2*sigma**2)/sigma**2)**2*((1/2)*math.erf((1/2)*math.sqrt(2)*(math.sqrt(T)*sigma*(1 + (-q + r - 1/2*sigma**2)/sigma**2) + math.log(H/S)/(math.sqrt(T)*sigma))) + 1/2)*math.exp(-T*q)/S - (H/S)**(2 + 2*(-q + r - 1/2*sigma**2)/sigma**2)*(2 + 2*(-q + r - 1/2*sigma**2)/sigma**2)**2*((1/2)*math.erf((1/2)*math.sqrt(2)*(math.sqrt(T)*sigma*(1 + (-q + r - 1/2*sigma**2)/sigma**2) + math.log(H**2/(K*S))/(math.sqrt(T)*sigma))) + 1/2)*math.exp(-T*q)/S - (H/S)**(2 + 2*(-q + r - 1/2*sigma**2)/sigma**2)*(2 + 2*(-q + r - 1/2*sigma**2)/sigma**2)*((1/2)*math.erf((1/2)*math.sqrt(2)*(math.sqrt(T)*sigma*(1 + (-q + r - 1/2*sigma**2)/sigma**2) + math.log(H/S)/(math.sqrt(T)*sigma))) + 1/2)*math.exp(-T*q)/S + (H/S)**(2 + 2*(-q + r - 1/2*sigma**2)/sigma**2)*(2 + 2*(-q + r - 1/2*sigma**2)/sigma**2)*((1/2)*math.erf((1/2)*math.sqrt(2)*(math.sqrt(T)*sigma*(1 + (-q + r - 1/2*sigma**2)/sigma**2) + math.log(H**2/(K*S))/(math.sqrt(T)*sigma))) + 1/2)*math.exp(-T*q)/S - 1/2*math.sqrt(2)*(H/S)**(2 + 2*(-q + r - 1/2*sigma**2)/sigma**2)*(math.sqrt(T)*sigma*(1 + (-q + r - 1/2*sigma**2)/sigma**2) + math.log(H/S)/(math.sqrt(T)*sigma))*math.exp(-T*q)*math.exp(-1/2*(math.sqrt(T)*sigma*(1 + (-q + r - 1/2*sigma**2)/sigma**2) + math.log(H/S)/(math.sqrt(T)*sigma))**2)/(math.sqrt(math.pi)*S*T*sigma**2) + (1/2)*math.sqrt(2)*(H/S)**(2 + 2*(-q + r - 1/2*sigma**2)/sigma**2)*(math.sqrt(T)*sigma*(1 + (-q + r - 1/2*sigma**2)/sigma**2) + math.log(H**2/(K*S))/(math.sqrt(T)*sigma))*math.exp(-T*q)*math.exp(-1/2*(math.sqrt(T)*sigma*(1 + (-q + r - 1/2*sigma**2)/sigma**2) + math.log(H**2/(K*S))/(math.sqrt(T)*sigma))**2)/(math.sqrt(math.pi)*S*T*sigma**2) + (1/2)*math.sqrt(2)*(math.sqrt(T)*sigma*(1 + (-q + r - 1/2*sigma**2)/sigma**2) + math.log(S/H)/(math.sqrt(T)*sigma))*math.exp(-T*q)*math.exp(-1/2*(math.sqrt(T)*sigma*(1 + (-q + r - 1/2*sigma**2)/sigma**2) + math.log(S/H)/(math.sqrt(T)*sigma))**2)/(math.sqrt(math.pi)*S*T*sigma**2) - 1/2*math.sqrt(2)*(math.sqrt(T)*sigma*(1 + (-q + r - 1/2*sigma**2)/sigma**2) + math.log(S/K)/(math.sqrt(T)*sigma))*math.exp(-T*q)*math.exp(-1/2*(math.sqrt(T)*sigma*(1 + (-q + r - 1/2*sigma**2)/sigma**2) + math.log(S/K)/(math.sqrt(T)*sigma))**2)/(math.sqrt(math.pi)*S*T*sigma**2) - math.sqrt(2)*(H/S)**(2 + 2*(-q + r - 1/2*sigma**2)/sigma**2)*(2 + 2*(-q + r - 1/2*sigma**2)/sigma**2)*math.exp(-T*q)*math.exp(-1/2*(math.sqrt(T)*sigma*(1 + (-q + r - 1/2*sigma**2)/sigma**2) + math.log(H**2/(K*S))/(math.sqrt(T)*sigma))**2)/(math.sqrt(math.pi)*S*math.sqrt(T)*sigma) + math.sqrt(2)*(H/S)**(2 + 2*(-q + r - 1/2*sigma**2)/sigma**2)*(2 + 2*(-q + r - 1/2*sigma**2)/sigma**2)*math.exp(-T*q)*math.exp(-1/2*(math.sqrt(T)*sigma*(1 + (-q + r - 1/2*sigma**2)/sigma**2) + math.log(H/S)/(math.sqrt(T)*sigma))**2)/(math.sqrt(math.pi)*S*math.sqrt(T)*sigma) + (1/2)*math.sqrt(2)*(H/S)**(2 + 2*(-q + r - 1/2*sigma**2)/sigma**2)*math.exp(-T*q)*math.exp(-1/2*(math.sqrt(T)*sigma*(1 + (-q + r - 1/2*sigma**2)/sigma**2) + math.log(H**2/(K*S))/(math.sqrt(T)*sigma))**2)/(math.sqrt(math.pi)*S*math.sqrt(T)*sigma) - 1/2*math.sqrt(2)*(H/S)**(2 + 2*(-q + r - 1/2*sigma**2)/sigma**2)*math.exp(-T*q)*math.exp(-1/2*(math.sqrt(T)*sigma*(1 + (-q + r - 1/2*sigma**2)/sigma**2) + math.log(H/S)/(math.sqrt(T)*sigma))**2)/(math.sqrt(math.pi)*S*math.sqrt(T)*sigma) + (1/2)*math.sqrt(2)*math.exp(-T*q)*math.exp(-1/2*(math.sqrt(T)*sigma*(1 + (-q + r - 1/2*sigma**2)/sigma**2) + math.log(S/K)/(math.sqrt(T)*sigma))**2)/(math.sqrt(math.pi)*S*math.sqrt(T)*sigma) - 1/2*math.sqrt(2)*math.exp(-T*q)*math.exp(-1/2*(math.sqrt(T)*sigma*(1 + (-q + r - 1/2*sigma**2)/sigma**2) + math.log(S/H)/(math.sqrt(T)*sigma))**2)/(math.sqrt(math.pi)*S*math.sqrt(T)*sigma)
+
+    vol_sqrt_t = sigma * np.sqrt(T)
+    d1_k = (np.log(S / K) + (r - q + 0.5 * sigma**2) * T) / vol_sqrt_t
+    d1_h = (np.log(S / H) + (r - q + 0.5 * sigma**2) * T) / vol_sqrt_t
+    d2_h = d1_h - vol_sqrt_t
+
+    gamma = (
+        np.exp(-q * T) * norm.pdf(d1_k) / (S * vol_sqrt_t)
+        - np.exp(-q * T) * norm.pdf(d1_h) / (S * vol_sqrt_t)
+        + (H - K) * np.exp(-r * T) * norm.pdf(d2_h) / (S**2 * vol_sqrt_t) * (1.0 + d2_h / vol_sqrt_t)
+    )
+    return float(gamma)
+
 
 def vega_barrier_up_and_out_call(S: float, K: float, T: float, r: float, q: float, sigma: float, H: float) -> float:
-    """Exact analytical Vega for European Up-and-Out Call."""
-    if S >= H or K >= H:
+    r"""Exact analytical Vega ($\partial V / \partial \sigma$) for European Terminal Barrier Up-and-Out Call.
+
+    Vega = S e^{-qT} \sqrt{T} \phi(d_1(S, K))
+         - S e^{-qT} \sqrt{T} \phi(d_1(S, H))
+         + \frac{(H - K) e^{-rT} \phi(d_2(S, H)) d_1(S, H)}{\sigma}
+    """
+    if K >= H or S <= 0.0 or T <= 0.0 or sigma <= 0.0:
         return 0.0
-    return -K*(H/S)**(2*(-q + r - 1/2*sigma**2)/sigma**2)*(-2/sigma - 4*(-q + r - 1/2*sigma**2)/sigma**3)*((1/2)*math.erf((1/2)*math.sqrt(2)*(math.sqrt(T)*sigma*(1 + (-q + r - 1/2*sigma**2)/sigma**2) - math.sqrt(T)*sigma + math.log(H/S)/(math.sqrt(T)*sigma))) + 1/2)*math.exp(-T*r)*math.log(H/S) + K*(H/S)**(2*(-q + r - 1/2*sigma**2)/sigma**2)*(-2/sigma - 4*(-q + r - 1/2*sigma**2)/sigma**3)*((1/2)*math.erf((1/2)*math.sqrt(2)*(math.sqrt(T)*sigma*(1 + (-q + r - 1/2*sigma**2)/sigma**2) - math.sqrt(T)*sigma + math.log(H**2/(K*S))/(math.sqrt(T)*sigma))) + 1/2)*math.exp(-T*r)*math.log(H/S) - 1/2*math.sqrt(2)*K*(H/S)**(2*(-q + r - 1/2*sigma**2)/sigma**2)*(math.sqrt(T)*sigma*(-1/sigma - 2*(-q + r - 1/2*sigma**2)/sigma**3) + math.sqrt(T)*(1 + (-q + r - 1/2*sigma**2)/sigma**2) - math.sqrt(T) - math.log(H/S)/(math.sqrt(T)*sigma**2))*math.exp(-T*r)*math.exp(-1/2*(math.sqrt(T)*sigma*(1 + (-q + r - 1/2*sigma**2)/sigma**2) - math.sqrt(T)*sigma + math.log(H/S)/(math.sqrt(T)*sigma))**2)/math.sqrt(math.pi) + (1/2)*math.sqrt(2)*K*(H/S)**(2*(-q + r - 1/2*sigma**2)/sigma**2)*(math.sqrt(T)*sigma*(-1/sigma - 2*(-q + r - 1/2*sigma**2)/sigma**3) + math.sqrt(T)*(1 + (-q + r - 1/2*sigma**2)/sigma**2) - math.sqrt(T) - math.log(H**2/(K*S))/(math.sqrt(T)*sigma**2))*math.exp(-T*r)*math.exp(-1/2*(math.sqrt(T)*sigma*(1 + (-q + r - 1/2*sigma**2)/sigma**2) - math.sqrt(T)*sigma + math.log(H**2/(K*S))/(math.sqrt(T)*sigma))**2)/math.sqrt(math.pi) + (1/2)*math.sqrt(2)*K*(math.sqrt(T)*sigma*(-1/sigma - 2*(-q + r - 1/2*sigma**2)/sigma**3) + math.sqrt(T)*(1 + (-q + r - 1/2*sigma**2)/sigma**2) - math.sqrt(T) - math.log(S/H)/(math.sqrt(T)*sigma**2))*math.exp(-T*r)*math.exp(-1/2*(math.sqrt(T)*sigma*(1 + (-q + r - 1/2*sigma**2)/sigma**2) - math.sqrt(T)*sigma + math.log(S/H)/(math.sqrt(T)*sigma))**2)/math.sqrt(math.pi) - 1/2*math.sqrt(2)*K*(math.sqrt(T)*sigma*(-1/sigma - 2*(-q + r - 1/2*sigma**2)/sigma**3) + math.sqrt(T)*(1 + (-q + r - 1/2*sigma**2)/sigma**2) - math.sqrt(T) - math.log(S/K)/(math.sqrt(T)*sigma**2))*math.exp(-T*r)*math.exp(-1/2*(math.sqrt(T)*sigma*(1 + (-q + r - 1/2*sigma**2)/sigma**2) - math.sqrt(T)*sigma + math.log(S/K)/(math.sqrt(T)*sigma))**2)/math.sqrt(math.pi) + S*(H/S)**(2 + 2*(-q + r - 1/2*sigma**2)/sigma**2)*(-2/sigma - 4*(-q + r - 1/2*sigma**2)/sigma**3)*((1/2)*math.erf((1/2)*math.sqrt(2)*(math.sqrt(T)*sigma*(1 + (-q + r - 1/2*sigma**2)/sigma**2) + math.log(H/S)/(math.sqrt(T)*sigma))) + 1/2)*math.exp(-T*q)*math.log(H/S) - S*(H/S)**(2 + 2*(-q + r - 1/2*sigma**2)/sigma**2)*(-2/sigma - 4*(-q + r - 1/2*sigma**2)/sigma**3)*((1/2)*math.erf((1/2)*math.sqrt(2)*(math.sqrt(T)*sigma*(1 + (-q + r - 1/2*sigma**2)/sigma**2) + math.log(H**2/(K*S))/(math.sqrt(T)*sigma))) + 1/2)*math.exp(-T*q)*math.log(H/S) + (1/2)*math.sqrt(2)*S*(H/S)**(2 + 2*(-q + r - 1/2*sigma**2)/sigma**2)*(math.sqrt(T)*sigma*(-1/sigma - 2*(-q + r - 1/2*sigma**2)/sigma**3) + math.sqrt(T)*(1 + (-q + r - 1/2*sigma**2)/sigma**2) - math.log(H/S)/(math.sqrt(T)*sigma**2))*math.exp(-T*q)*math.exp(-1/2*(math.sqrt(T)*sigma*(1 + (-q + r - 1/2*sigma**2)/sigma**2) + math.log(H/S)/(math.sqrt(T)*sigma))**2)/math.sqrt(math.pi) - 1/2*math.sqrt(2)*S*(H/S)**(2 + 2*(-q + r - 1/2*sigma**2)/sigma**2)*(math.sqrt(T)*sigma*(-1/sigma - 2*(-q + r - 1/2*sigma**2)/sigma**3) + math.sqrt(T)*(1 + (-q + r - 1/2*sigma**2)/sigma**2) - math.log(H**2/(K*S))/(math.sqrt(T)*sigma**2))*math.exp(-T*q)*math.exp(-1/2*(math.sqrt(T)*sigma*(1 + (-q + r - 1/2*sigma**2)/sigma**2) + math.log(H**2/(K*S))/(math.sqrt(T)*sigma))**2)/math.sqrt(math.pi) - 1/2*math.sqrt(2)*S*(math.sqrt(T)*sigma*(-1/sigma - 2*(-q + r - 1/2*sigma**2)/sigma**3) + math.sqrt(T)*(1 + (-q + r - 1/2*sigma**2)/sigma**2) - math.log(S/H)/(math.sqrt(T)*sigma**2))*math.exp(-T*q)*math.exp(-1/2*(math.sqrt(T)*sigma*(1 + (-q + r - 1/2*sigma**2)/sigma**2) + math.log(S/H)/(math.sqrt(T)*sigma))**2)/math.sqrt(math.pi) + (1/2)*math.sqrt(2)*S*(math.sqrt(T)*sigma*(-1/sigma - 2*(-q + r - 1/2*sigma**2)/sigma**3) + math.sqrt(T)*(1 + (-q + r - 1/2*sigma**2)/sigma**2) - math.log(S/K)/(math.sqrt(T)*sigma**2))*math.exp(-T*q)*math.exp(-1/2*(math.sqrt(T)*sigma*(1 + (-q + r - 1/2*sigma**2)/sigma**2) + math.log(S/K)/(math.sqrt(T)*sigma))**2)/math.sqrt(math.pi)
+
+    vol_sqrt_t = sigma * np.sqrt(T)
+    d1_k = (np.log(S / K) + (r - q + 0.5 * sigma**2) * T) / vol_sqrt_t
+    d1_h = (np.log(S / H) + (r - q + 0.5 * sigma**2) * T) / vol_sqrt_t
+    d2_h = d1_h - vol_sqrt_t
+
+    vega = (
+        S * np.exp(-q * T) * np.sqrt(T) * norm.pdf(d1_k)
+        - S * np.exp(-q * T) * np.sqrt(T) * norm.pdf(d1_h)
+        + (H - K) * np.exp(-r * T) * norm.pdf(d2_h) * d1_h / sigma
+    )
+    return float(vega)
+
 
 def greeks_european_barrier_up_and_out_call(params: dict[str, float]) -> dict[str, float]:
-    r"""Computes the Greeks of a barrier up-and-out call option using exact analytical formulas.
+    r"""Computes the Greeks of a terminal barrier up-and-out call option using exact analytical formulas.
 
     Args:
         params (dict[str, float]): Dictionary containing option and market parameters:
@@ -162,7 +244,7 @@ def greeks_european_barrier_up_and_out_call(params: dict[str, float]) -> dict[st
             - "r" (float): Annualized risk-free interest rate in decimal form (e.g., 0.05 for 5%).
             - "q" (float): Annualized continuous dividend yield in decimal form (e.g., 0.02 for 2%).
             - "sigma" (float): Annualized volatility in decimal form ($\sigma > 0$, e.g., 0.20 for 20%).
-            - "H" (float): Up-and-out barrier level ($H > S_0$).
+            - "H" (float): Terminal barrier level ($H > K$).
 
     Returns:
         dict[str, float]: Dictionary containing computed analytical Greeks:
@@ -170,10 +252,20 @@ def greeks_european_barrier_up_and_out_call(params: dict[str, float]) -> dict[st
             - "gamma" (float): Second derivative w.r.t. spot price ($\partial^2 V / \partial S_0^2$).
             - "vega" (float): First derivative w.r.t. volatility ($\partial V / \partial \sigma$).
     """
-    S0, K, T, r, q, sigma, H = params["S0"], params["K"], params["T"], params["r"], params["q"], params["sigma"], params["H"]
+    S0, K, T, r, q, sigma, H = (
+        params["S0"],
+        params["K"],
+        params["T"],
+        params["r"],
+        params["q"],
+        params["sigma"],
+        params["H"],
+    )
 
     return {
         "delta": delta_barrier_up_and_out_call(S0, K, T, r, q, sigma, H),
         "gamma": gamma_barrier_up_and_out_call(S0, K, T, r, q, sigma, H),
         "vega": vega_barrier_up_and_out_call(S0, K, T, r, q, sigma, H),
     }
+
+

@@ -10,6 +10,7 @@ Methods/Analytic/__init__.py
 Methods/Analytic/europeans.py
 Methods/LSMC/__init__.py
 Methods/Malliavin/__init__.py
+Methods/MonteCarlo/FDMC.py
 Methods/MonteCarlo/__init__.py
 Methods/PDE 1D/americans.py
 Methods/PDE 1D/asian.py
@@ -21,3 +22,6 @@ greeks.egg-info/SOURCES.txt
 greeks.egg-info/dependency_links.txt
 greeks.egg-info/requires.txt
 greeks.egg-info/top_level.txt
+pricers/__init__.py
+pricers/europeans_MC.py
+pricers/europeans_analytic.py

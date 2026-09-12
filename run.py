@@ -1,29 +1,18 @@
-
-import numpy as np
-import pandas as pd
-
+from run_all_greeks import run_all_greeks
+from run_benchmarks import benchmark_all
 
 # Greeks computation comparison using different methods.
-
-def compute_benchmarks():
-    """Compute benchmarks for Greeks using different methods."""
-    print("Computing benchmarks...")
-
-def compute_greeks_all_methods():
-    """Compute Greeks using all methods."""
-    print("Computing Greeks using all methods...")
-
-
 
 def main():
     
     print("Starting computation.")
 
     print("Starting benchmarks...")
-    compute_benchmarks()
+    benchmarks = benchmark_all()
+    benchmarks.to_csv("./results/benchmarks.csv")
 
     print("Starting greeks computations...")
-    compute_greeks_all_methods()
+    run_all_greeks()
 
     print("Computation finished.")
 

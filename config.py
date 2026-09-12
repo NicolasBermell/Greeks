@@ -1,0 +1,4 @@
+FDMC_N_SIMS_ARRAY = [10000, 100000, 1000000, 10000000]
+FDMC_EPS_ARRAY = [1e-1, 1e-2, 1e-3, 1e-4, 1e-5, 1e-6, 1e-7, 1e-8]
+FDMC_SEED = 1984
+FDMC_RESULTS_FILE = "./results/FDMC_results.csv"
