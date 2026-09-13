@@ -81,9 +81,6 @@ def FDMC_geeks_european_call(
         "vega": vega,
     }
 
-FDMC_greeks_european_call = FDMC_geeks_european_call
-
-
 # ==============================================================================
 # 2. Digital European Call Greeks
 # ==============================================================================
@@ -148,9 +145,6 @@ def FDMC_geeks_european_digital_call(
         "gamma": gamma,
         "vega": vega,
     }
-
-FDMC_greeks_european_digital_call = FDMC_geeks_european_digital_call
-
 
 # ==============================================================================
 # 3. Barrier Option (Up-and-Out Call) Greeks
@@ -253,14 +247,11 @@ def FDMC_geeks_european_barrier_up_and_out_call(
         "vega": vega,
     }
 
-FDMC_greeks_european_barrier_up_and_out_call = FDMC_geeks_european_barrier_up_and_out_call
-
-
 # ==============================================================================
 # 4. Multi-Product Greeks Suite
 # ==============================================================================
 
-def FDMC_all_greeks(
+def FDMC_all_greeks_european(
     params, eps: float = 1e-6, N: int = 10000, seed: int = 42, paths: np.ndarray | None = None
 ) -> dict[str, dict[str, float]]:
     """Calculates all Greeks for Call, Digital Call, and Barrier Up-and-Out options.
@@ -291,4 +282,4 @@ if __name__ == "__main__":
         "H": 120.0,
     }
     print("FDMC All Greeks test:")
-    print(FDMC_all_greeks(test_params))
+    print(FDMC_all_greeks_european(test_params))

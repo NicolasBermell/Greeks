@@ -1,7 +1,14 @@
+import sys
+from pathlib import Path
 import QuantLib as ql
 import numpy as np
 from scipy.stats import norm
 from pandas import DataFrame
+
+# Ensure project root is in sys.path for direct script execution
+root_dir = str(Path(__file__).resolve().parent.parent)
+if root_dir not in sys.path:
+    sys.path.insert(0, root_dir)
 
 from Methods.Analytic.europeans import greeks_european_call, greeks_european_barrier_up_and_out_call, greeks_european_digital_call
 

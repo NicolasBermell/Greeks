@@ -1,5 +1,5 @@
 from pandas import DataFrame, concat
-from Methods.MonteCarlo.FDMC import *
+from Methods.MonteCarlo.FDMC_european import *
 from products import *
 from config import *
 
