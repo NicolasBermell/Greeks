@@ -5,8 +5,6 @@ from pandas import DataFrame
 
 from Methods.Analytic.europeans import greeks_european_call, greeks_european_barrier_up_and_out_call, greeks_european_digital_call
 
-
-
 def benchmark_greeks_european_call(params: dict[str, float]) -> dict[str, float]:
     return greeks_european_call(params)
 
