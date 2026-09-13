@@ -83,15 +83,41 @@ def compute_error_metrics(
     return merged
 
 
+def is_catastrophic_eps(product: str, greek: str, eps: float, fdmc_val: float, bench_val: float) -> bool:
+    """Detects whether an epsilon step size is in the catastrophic failure regime.
+
+    Catastrophic regimes include:
+    1. Estimator Collapse to Zero: |FDMC| < 1e-7 while analytical benchmark is non-zero
+       (e.g., fine eps for discontinuous digital/barrier where zero simulated paths cross the strike).
+    2. Gamma Roundoff Explosion / Cancellation: Central finite differences dividing by eps^2
+       suffer catastrophic floating-point cancellation or variance explosion for eps < 0.01
+       (and eps < 0.1 for discontinuous options).
+    3. Discontinuous Boundary Collapse: Delta for digital/barrier options collapses when eps < 0.01.
+    """
+    if abs(bench_val) > 1e-5 and abs(fdmc_val) < 1e-7:
+        return True
+    if greek == "gamma" and eps < 0.01:
+        return True
+    if "Digital" in product or "Barrier" in product:
+        if greek == "gamma" and eps < 0.1:
+            return True
+        if greek == "delta" and eps < 0.01:
+            return True
+    return False
+
+
 def extract_optimal_eps(
     metrics_df: pd.DataFrame,
     criterion: str = "abs_error",
+    exclude_catastrophic: bool = True,
 ) -> pd.DataFrame:
     """Finds the optimal step size eps* that minimizes the chosen error metric (default: abs_error).
 
     Args:
         metrics_df: DataFrame enriched with error metrics.
         criterion: 'abs_error' or 'rel_error'.
+        exclude_catastrophic: If True, filters out catastrophic epsilon values (e.g. collapsed
+            zero estimators or catastrophic roundoff zones for Gamma).
 
     Returns:
         pd.DataFrame: Summary table of optimal eps* and corresponding errors.
@@ -113,6 +139,15 @@ def extract_optimal_eps(
                 valid = n_data.dropna(subset=[col])
                 if valid.empty:
                     continue
+
+                if exclude_catastrophic:
+                    non_cat = valid[~valid.apply(
+                        lambda r: is_catastrophic_eps(prod, greek, r["eps"], r[greek], r[f"{greek}_bench"]),
+                        axis=1,
+                    )]
+                    if not non_cat.empty:
+                        valid = non_cat
+
                 best_idx = valid[col].idxmin()
                 best_row = valid.loc[best_idx]
 
@@ -164,6 +199,7 @@ def compute_summary_table(
     metrics_df: pd.DataFrame,
     n_choice: int | None = None,
     criterion: str = "abs_error",
+    exclude_catastrophic: bool = True,
 ) -> pd.DataFrame:
     """Generates an executive summary table comparing Benchmark vs best FDMC for each Product and Greek.
 
@@ -171,6 +207,7 @@ def compute_summary_table(
         metrics_df: Enriched metrics DataFrame.
         n_choice: Specific N to evaluate, or None to pick the largest N.
         criterion: 'abs_error' or 'rel_error'.
+        exclude_catastrophic: If True, excludes catastrophic step sizes.
 
     Returns:
         pd.DataFrame: Formatted summary comparison.
@@ -178,7 +215,7 @@ def compute_summary_table(
     if n_choice is None:
         n_choice = int(metrics_df["N"].max())
 
-    opt_df = extract_optimal_eps(metrics_df, criterion=criterion)
+    opt_df = extract_optimal_eps(metrics_df, criterion=criterion, exclude_catastrophic=exclude_catastrophic)
     opt_subset = opt_df[opt_df["N"] == n_choice]
 
     table = opt_subset[[
@@ -208,6 +245,8 @@ def find_min_acceptable_N(
     metrics_df: pd.DataFrame,
     tolerances: dict[str, float] | None = None,
     criterion: str = "abs_error",
+    timing_df: pd.DataFrame | None = None,
+    exclude_catastrophic: bool = True,
 ) -> pd.DataFrame:
     """Finds the minimum number of simulations N needed to achieve an acceptable error tolerance.
 
@@ -215,9 +254,11 @@ def find_min_acceptable_N(
         metrics_df: Enriched metrics DataFrame.
         tolerances: Dictionary of target tolerances per Greek (e.g. {'delta': 0.001, 'gamma': 0.0005, 'vega': 0.05}).
         criterion: 'abs_error' or 'rel_error'.
+        timing_df: Optional timing DataFrame (joint or per-Greek) to report wall-clock time.
+        exclude_catastrophic: If True, excludes catastrophic step sizes.
 
     Returns:
-        pd.DataFrame: Table of minimum required N, optimal eps, and achieved error.
+        pd.DataFrame: Table of minimum required N, optimal eps, achieved error, and joint wall-clock execution time.
     """
     if tolerances is None:
         if criterion == "abs_error":
@@ -233,8 +274,24 @@ def find_min_acceptable_N(
                 "vega": 0.5,       # 0.5% relative error
             }
 
-    opt_df = extract_optimal_eps(metrics_df, criterion=criterion)
+    opt_df = extract_optimal_eps(metrics_df, criterion=criterion, exclude_catastrophic=exclude_catastrophic)
     err_col = f"min_{criterion}" if criterion == "abs_error" else "min_rel_error_pct"
+
+    # Compute rate ms / path if timing_df is provided
+    ms_rates = {}
+    has_greek_col = False
+    if timing_df is not None:
+        ms_per_sim = timing_df.copy()
+        if "ms_per_10k_paths" in ms_per_sim.columns:
+            ms_per_sim["rate"] = ms_per_sim["ms_per_10k_paths"] / 10_000.0
+        else:
+            ms_per_sim["rate"] = ms_per_sim["time_ms_mean"] / ms_per_sim["N"]
+
+        has_greek_col = "Greek" in ms_per_sim.columns
+        if has_greek_col:
+            ms_rates = ms_per_sim.groupby(["Product", "Greek"])["rate"].mean().to_dict()
+        else:
+            ms_rates = ms_per_sim.groupby("Product")["rate"].mean().to_dict()
 
     results = []
     products = opt_df["Product"].unique()
@@ -242,36 +299,50 @@ def find_min_acceptable_N(
 
     for prod in products:
         for greek in greeks:
+            if has_greek_col:
+                ms_per_path = ms_rates.get((prod, greek), None)
+            else:
+                ms_per_path = ms_rates.get(prod, None)
+
             target_tol = tolerances.get(greek, 0.01)
             sub = opt_df[(opt_df["Product"] == prod) & (opt_df["Greek"] == greek)].sort_values("N")
 
-            # Find the smallest N that meets the tolerance
             passing = sub[sub[err_col] <= target_tol]
             if not passing.empty:
                 first_pass = passing.iloc[0]
+                min_n = int(first_pass["N"])
+                t_est = (ms_per_path * min_n) if ms_per_path is not None else np.nan
+
                 results.append({
                     "Product": prod,
                     "Greek": greek,
                     "Target Tolerance": target_tol,
-                    "Min Required N": int(first_pass["N"]),
+                    "Min Required N": min_n,
                     "Optimal ε*": first_pass["optimal_eps"],
                     "Achieved Abs Error": first_pass["min_abs_error"],
                     "Achieved Rel Error (%)": first_pass["min_rel_error_pct"],
+                    "Joint Time (ms)": t_est,
                     "Status": "Passed",
                 })
             else:
-                # Lowest error achieved across all N
                 best_ever = sub.loc[sub[err_col].idxmin()]
+                min_n = int(sub["N"].max())
+                t_est = (ms_per_path * min_n) if ms_per_path is not None else np.nan
+
                 results.append({
                     "Product": prod,
                     "Greek": greek,
                     "Target Tolerance": target_tol,
-                    "Min Required N": int(sub["N"].max()),
+                    "Min Required N": min_n,
                     "Optimal ε*": best_ever["optimal_eps"],
                     "Achieved Abs Error": best_ever["min_abs_error"],
                     "Achieved Rel Error (%)": best_ever["min_rel_error_pct"],
+                    "Joint Time (ms)": t_est,
                     "Status": f"Exceeds Tol (best={best_ever[err_col]:.4f})",
                 })
 
-    return pd.DataFrame(results)
+    res_df = pd.DataFrame(results)
+    if timing_df is None:
+        res_df = res_df.drop(columns=["Joint Time (ms)"])
+    return res_df
 
