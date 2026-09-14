@@ -1,1 +1,1 @@
-"""PDE solvers"""
+"""PDE_1 package."""

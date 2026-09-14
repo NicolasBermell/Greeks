@@ -2,7 +2,7 @@ import sys
 from pathlib import Path
 import importlib
 from pandas import DataFrame
-from PDE_1D.PDE_Solver_ql import (
+from Methods.PDE_1D.PDE_Solver_ql import (
     PDE_ql_geeks_american_call,
     PDE_ql_geeks_american_digital_call,
     PDE_ql_geeks_american_barrier_up_and_out,

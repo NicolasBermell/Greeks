@@ -21,6 +21,7 @@ from Methods.Malliavin.malliavin_european_standard import (
 from Methods.Malliavin.malliavin_european_fournier import (
     compare_cutoff_functions,
     compare_delta_strike_sensitivities,
+    compute_fournier_delta,
     get_cutoff,
     malliavin_fournier_all_greeks_european,
     malliavin_fournier_greeks_european_barrier_up_and_out_call,
@@ -47,6 +48,7 @@ __all__ = [
     "malliavin_greeks_european_barrier_up_and_out_call",
     "malliavin_all_greeks_european",
     # Fournié Localized Malliavin
+    "compute_fournier_delta",
     "get_cutoff",
     "malliavin_fournier_greeks_european_call",
     "malliavin_fournier_greeks_european_digital_call",
