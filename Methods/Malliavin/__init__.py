@@ -12,6 +12,7 @@ from Methods.Malliavin.malliavin_european_standard import (
     _vega_malliavin_european_digital_call,
     compute_malliavin_weights,
     generate_paths,
+    malliavin_samples_european,
     malliavin_all_greeks_european,
     malliavin_greeks_european_barrier_up_and_out_call,
     malliavin_greeks_european_call,
@@ -27,11 +28,14 @@ from Methods.Malliavin.malliavin_european_fournier import (
     malliavin_fournier_greeks_european_barrier_up_and_out_call,
     malliavin_fournier_greeks_european_call,
     malliavin_fournier_greeks_european_digital_call,
+    malliavin_fournier_samples_european_call,
+    malliavin_fournier_samples_european_digital_call,
+    malliavin_fournier_samples_european_call_terminal_knockout,
 )
-
 __all__ = [
-    # Standard Malliavin
+    # Standard Malliavin (European)
     "generate_paths",
+    "malliavin_samples_european",
     "compute_malliavin_weights",
     "simulate_terminal_spot",
     "_delta_malliavin_european_call",
@@ -47,11 +51,14 @@ __all__ = [
     "malliavin_greeks_european_digital_call",
     "malliavin_greeks_european_barrier_up_and_out_call",
     "malliavin_all_greeks_european",
-    # Fournié Localized Malliavin
+    # Fournié Localized Malliavin (European)
     "compute_fournier_delta",
     "get_cutoff",
     "malliavin_fournier_greeks_european_call",
     "malliavin_fournier_greeks_european_digital_call",
+    "malliavin_fournier_samples_european_call",
+    "malliavin_fournier_samples_european_digital_call",
+    "malliavin_fournier_samples_european_call_terminal_knockout",
     "malliavin_fournier_greeks_european_barrier_up_and_out_call",
     "malliavin_fournier_all_greeks_european",
     "compare_cutoff_functions",

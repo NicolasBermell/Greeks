@@ -20,7 +20,8 @@ def _coerce_results_types(df: pd.DataFrame) -> pd.DataFrame:
     out = df.copy()
     greeks_and_params = [
         "delta", "gamma", "vega", "theta", "rho",
-        "S0", "K", "T", "r", "q", "sigma", "H", "eps", "delta_strike"
+        "S0", "K", "T", "r", "q", "sigma", "H", "eps", "delta_strike",
+        "delta_var", "delta_se", "gamma_var", "gamma_se", "vega_var", "vega_se",
     ]
     for col in greeks_and_params:
         if col in out.columns:
@@ -99,6 +100,7 @@ def load_all_simulation_results(
         malliavin_fournier_df = _coerce_results_types(pd.read_csv(four_path))
 
     return benchmarks_df, fdmc_df, malliavin_df, malliavin_fournier_df
+
 
 
 # ==============================================================================
@@ -207,7 +209,7 @@ def is_catastrophic_eps(
     2. Gamma Roundoff Explosion / Floating-Point Cancellation: Central finite differences
        dividing by eps^2 suffer catastrophic cancellation or variance explosion for eps < 0.01
        (and eps < 0.1 for discontinuous options).
-    3. Discontinuous Boundary Collapse: Delta for digital/barrier options collapses when eps < 0.01.
+    3. Discontinuous Boundary Collapse: Delta for digital/knock-out options collapses when eps < 0.01.
 
     Args:
         product: Option product name.
@@ -231,8 +233,8 @@ def is_catastrophic_eps(
     if g == "gamma" and eps < (0.01 - tol):
         return True
 
-    # 3. Discontinuous contracts (Digital & Barrier)
-    if "digital" in p or "barrier" in p:
+    # 3. Discontinuous contracts (Digital & terminal knock-out)
+    if "digital" in p or "barrier" in p or "knock-out" in p:
         if g == "gamma" and eps < (0.1 - tol):
             return True
         if g == "delta" and eps < (0.01 - tol):
@@ -263,7 +265,7 @@ def is_catastrophic_eps_series(
         pd.Series of bool: True for rows in catastrophic regime.
     """
     p_lower = products.astype(str).str.lower()
-    is_discontinuous = p_lower.str.contains("digital", na=False) | p_lower.str.contains("barrier", na=False)
+    is_discontinuous = p_lower.str.contains("digital|barrier|knock-out", na=False)
 
     if isinstance(greeks, str):
         g_lower = greeks.lower()
@@ -393,7 +395,12 @@ def extract_fixed_or_optimal_eps(
                     "benchmark_value": bench,
                 })
 
-    return pd.DataFrame(records)
+    cols = [
+        "Product", "N", "Greek", "optimal_eps", "eps",
+        "min_abs_error", "abs_error", "min_rel_error_pct", "rel_error_pct",
+        "fdmc_value", "sim_value", "benchmark_value",
+    ]
+    return pd.DataFrame(records, columns=cols if not records else None)
 
 
 def extract_optimal_eps(
@@ -734,7 +741,7 @@ def find_min_acceptable_N(
 
     Args:
         metrics_df: Enriched metrics DataFrame.
-        tolerances: Dictionary of target tolerances per Greek (e.g. {'delta': 0.001, 'gamma': 0.0005, 'vega': 0.05}).
+        tolerances: Dictionary of target tolerances per Greek (e.g. {'delta': 0.005, 'gamma': 0.0002, 'vega': 0.05}).
         fdmc_eps: Fixed epsilon (e.g. 0.01) or 'optimal'.
         criterion: 'abs_error' or 'rel_error'.
         timing_df: Optional timing DataFrame (joint or per-Greek) to compute wall-clock execution time.
@@ -746,8 +753,8 @@ def find_min_acceptable_N(
     if tolerances is None:
         if criterion == "abs_error":
             tolerances = {
-                "delta": 0.001,    # within 10 bps
-                "gamma": 0.0005,   # within 0.0005
+                "delta": 0.005,    # within 0.005 (50 bps)
+                "gamma": 0.0002,   # within 0.0002 (~1% error)
                 "vega": 0.05,      # within 0.05
             }
         else:
@@ -851,24 +858,12 @@ def find_min_acceptable_N_comparison(
     exclude_catastrophic: bool = True,
     fournier_metrics_df: pd.DataFrame | None = None,
     fournier_timing_df: pd.DataFrame | None = None,
+    tolerance_dict: Mapping[str, float] | None = None,
 ) -> pd.DataFrame:
-    """Compares minimum required sample size N* and wall-clock execution time for FDMC vs Malliavin (and Fournié).
+    """Compares minimum required sample size N* and wall-clock execution time for FDMC vs Malliavin (and Fournié)."""
+    if tolerances is None and tolerance_dict is not None:
+        tolerances = tolerance_dict
 
-    Args:
-        fdmc_metrics_df: Enriched FDMC metrics DataFrame.
-        malliavin_metrics_df: Enriched Standard Malliavin metrics DataFrame.
-        tolerances: Dictionary of target tolerances per Greek.
-        fdmc_eps: Fixed epsilon (e.g. 0.01) or 'optimal'.
-        criterion: 'abs_error' or 'rel_error'.
-        fdmc_timing_df: Optional FDMC timing DataFrame.
-        malliavin_timing_df: Optional Standard Malliavin timing DataFrame.
-        exclude_catastrophic: If True, excludes catastrophic FDMC step sizes.
-        fournier_metrics_df: Optional enriched Fournié Localized Malliavin metrics DataFrame.
-        fournier_timing_df: Optional Fournié timing DataFrame.
-
-    Returns:
-        pd.DataFrame: Comparative table of min required N and wall-clock time across all methods.
-    """
     min_n_fdmc = find_min_acceptable_N(
         fdmc_metrics_df, tolerances=tolerances, fdmc_eps=fdmc_eps, criterion=criterion,
         timing_df=fdmc_timing_df, exclude_catastrophic=exclude_catastrophic
@@ -1112,6 +1107,7 @@ def compute_smoothing_and_gap_grid(
         "call": malliavin_fournier_greeks_european_call,
         "digital": malliavin_fournier_greeks_european_digital_call,
         "barrier": malliavin_fournier_greeks_european_barrier_up_and_out_call,
+        "knock-out": malliavin_fournier_greeks_european_barrier_up_and_out_call,
     }
     calc_fn = fn_map.get(contract_type.strip().lower(), malliavin_fournier_greeks_european_call)
 
@@ -1292,3 +1288,251 @@ def compute_empirical_convergence_rate(
         "num_points": len(sub),
         "status": "Converged",
     }
+
+
+def generate_summary_csv(
+    output_path: str | Path = "./results/summary.csv",
+    benchmarks_path: str | Path = "./results/benchmarks.csv",
+    fdmc_euro_path: str | Path = "./results/FDMC_results.csv",
+    malliavin_euro_path: str | Path = "./results/malliavin_results.csv",
+    malliavin_fournier_path: str | Path = "./results/malliavin_fournier_results.csv",
+    fdmc_fixed_eps: float = 0.01,
+) -> pd.DataFrame:
+    """Generates an up-to-date summary CSV comparing benchmarks, FDMC (at fixed eps), and Malliavin.
+
+    For each method and product, extracts the Greek sensitivities computed with the
+    maximum number of simulations (the most precise estimate), using fdmc_fixed_eps
+    (default 0.01) for all FDMC estimators.
+
+    Args:
+        output_path: File path to save the summary CSV.
+        benchmarks_path: Path to benchmarks.csv.
+        fdmc_euro_path: Path to European FDMC_results.csv.
+        malliavin_euro_path: Path to European malliavin_results.csv.
+        malliavin_fournier_path: Path to European malliavin_fournier_results.csv.
+        fdmc_fixed_eps: Perturbation step size for FDMC (default 0.01).
+
+    Returns:
+        pd.DataFrame: Summary table with columns Product, each Greek with its per-path variance
+            and standard error, Method, N, eps.
+    """
+    benchmarks_path = Path(benchmarks_path)
+    fdmc_euro_path = Path(fdmc_euro_path)
+    malliavin_euro_path = Path(malliavin_euro_path)
+    malliavin_fournier_path = Path(malliavin_fournier_path)
+
+    sections = []
+
+    # 1. Malliavin Results at Max N (Standard and Fournié)
+    mal_dfs = []
+    if malliavin_euro_path.exists():
+        mal_dfs.append(pd.read_csv(malliavin_euro_path))
+    if malliavin_fournier_path.exists():
+        mal_dfs.append(pd.read_csv(malliavin_fournier_path))
+
+    if mal_dfs:
+        combined_mal = pd.concat(mal_dfs, ignore_index=True)
+        mal_rows = []
+        for (prod, method) in combined_mal[["Product", "Method"]].drop_duplicates().values:
+            prod_df = combined_mal[(combined_mal["Product"] == prod) & (combined_mal["Method"] == method)]
+            max_n = prod_df["N"].max()
+            row = prod_df[prod_df["N"] == max_n].iloc[0].copy()
+            mal_rows.append(row)
+        df_mal = pd.DataFrame(mal_rows)
+        if "eps" not in df_mal.columns:
+            df_mal["eps"] = None
+        sections.append(df_mal)
+
+    # 2. FDMC Results at Max N with eps == fdmc_fixed_eps
+    fdmc_dfs = []
+    if fdmc_euro_path.exists():
+        fdmc_dfs.append(pd.read_csv(fdmc_euro_path))
+
+    if fdmc_dfs:
+        combined_fdmc = pd.concat(fdmc_dfs, ignore_index=True)
+        fdmc_rows = []
+        for prod in combined_fdmc["Product"].unique():
+            prod_df = combined_fdmc[combined_fdmc["Product"] == prod]
+            # Filter by fixed eps
+            eps_filtered = prod_df[np.isclose(prod_df["eps"], fdmc_fixed_eps)]
+            if not eps_filtered.empty:
+                max_n = eps_filtered["N"].max()
+                row = eps_filtered[eps_filtered["N"] == max_n].iloc[0].copy()
+            else:
+                max_n = prod_df["N"].max()
+                row = prod_df[prod_df["N"] == max_n].iloc[0].copy()
+            fdmc_rows.append(row)
+        df_fdmc = pd.DataFrame(fdmc_rows)
+        sections.append(df_fdmc)
+
+    # 3. Reference Benchmarks
+    if benchmarks_path.exists():
+        bench_df = pd.read_csv(benchmarks_path)
+        bench_df["N"] = None
+        bench_df["eps"] = None
+        sections.append(bench_df)
+
+    if not sections:
+        raise ValueError("No simulation or benchmark datasets were found to generate summary.csv.")
+
+    summary_df = pd.concat(sections, ignore_index=True)
+    col_order = [
+        "Product",
+        "delta", "delta_var", "delta_se",
+        "gamma", "gamma_var", "gamma_se",
+        "vega", "vega_var", "vega_se",
+        "Method", "N", "eps",
+    ]
+    summary_df = summary_df[[c for c in col_order if c in summary_df.columns]]
+
+    out_p = Path(output_path)
+    out_p.parent.mkdir(parents=True, exist_ok=True)
+    summary_df.to_csv(out_p, index=False)
+    print(f"Summary table successfully saved to {out_p} ({len(summary_df)} entries).")
+    return summary_df
+
+
+
+# ==============================================================================
+# 10. Independent Replications: Bias, Standard Error, RMSE and Efficiency
+# ==============================================================================
+
+def estimator_label(method: str, eps: float | None) -> str:
+    """'FDMC (ε=0.01)' for FDMC rows, the method name otherwise."""
+    if eps is None or pd.isna(eps):
+        return method
+    return f"{method} (ε={eps:g})"
+
+
+def summarize_replications(
+    raw_df: pd.DataFrame,
+    benchmarks_df: pd.DataFrame,
+    greeks: Sequence[str] = ("delta", "gamma", "vega"),
+) -> pd.DataFrame:
+    """Summarizes R independent runs per (Method, eps, Product, N) against analytical benchmarks.
+
+    Output is long format, one row per Greek, with:
+        R              number of replications
+        mean           average estimate over the R runs
+        bias           mean - benchmark
+        bias_se        sd / sqrt(R), uncertainty of the bias estimate
+        sd             standard deviation of the estimate across runs (empirical SE at this N)
+        mean_se        average within-run SE, sqrt(var / N); should match sd
+        rmse           sqrt(mean((estimate - benchmark)^2))
+        var_per_path   average within-run per-path variance
+        abs_err_q10/q50/q90   quantiles of |estimate - benchmark| across runs (for bands)
+        coverage_95    share of runs with |estimate - benchmark| <= 1.96 * se
+        time_per_path_s  median over runs of wall time / N (all three Greeks together)
+    """
+    bench = benchmarks_df.set_index("Product")
+    df = raw_df.copy()
+    if "eps" not in df.columns:
+        df["eps"] = np.nan
+
+    records = []
+    for (method, eps, product, n), grp in df.groupby(["Method", "eps", "Product", "N"], dropna=False):
+        time_per_path = float(np.median(grp["time_s"] / n)) if "time_s" in grp.columns else np.nan
+        for greek in greeks:
+            true = float(bench.loc[product, greek])
+            est = grp[greek].to_numpy(dtype=float)
+            err = est - true
+            se = grp[f"{greek}_se"].to_numpy(dtype=float)
+            r = len(est)
+            sd = float(np.std(est, ddof=1)) if r > 1 else np.nan
+            records.append({
+                "Method": method,
+                "eps": eps,
+                "Estimator": estimator_label(method, eps),
+                "Product": product,
+                "Greek": greek,
+                "N": int(n),
+                "R": r,
+                "benchmark": true,
+                "mean": float(np.mean(est)),
+                "bias": float(np.mean(err)),
+                "bias_se": sd / np.sqrt(r) if r > 1 else np.nan,
+                "sd": sd,
+                "mean_se": float(np.mean(se)),
+                "rmse": float(np.sqrt(np.mean(err**2))),
+                "var_per_path": float(np.mean(grp[f"{greek}_var"])),
+                "abs_err_q10": float(np.quantile(np.abs(err), 0.10)),
+                "abs_err_q50": float(np.quantile(np.abs(err), 0.50)),
+                "abs_err_q90": float(np.quantile(np.abs(err), 0.90)),
+                "coverage_95": float(np.mean(np.abs(err) <= 1.96 * se)),
+                "time_per_path_s": time_per_path,
+            })
+    return pd.DataFrame(records)
+
+
+def required_paths(var_per_path: float, tol: float, z: float = 1.96) -> float:
+    """N* = z^2 * Var / tol^2: paths needed so the half-width of the z-interval is tol."""
+    return z**2 * var_per_path / tol**2
+
+
+def compute_efficiency_table(
+    summary_df: pd.DataFrame,
+    fdmc_eps: float = FDMC_FIXED_EPS,
+    rel_tol: float = 0.01,
+    z: float = 1.96,
+) -> pd.DataFrame:
+    """Per-path variance, time per path and efficiency (variance x time) per estimator.
+
+    Uses the largest N of each estimator. Efficiency = var_per_path * time_per_path_s is the
+    work needed per unit of inverse squared error; lower is better. Ratios are relative to
+    FDMC at ``fdmc_eps`` on the same product and Greek:
+        n_ratio_vs_FDMC          = Var / Var_FDMC   (paths needed for equal SE)
+        efficiency_ratio_vs_FDMC = (Var * t) / (Var_FDMC * t_FDMC)   (CPU time for equal SE)
+    n_star / time_star give the paths and seconds to reach a 95% half-width of
+    rel_tol * |benchmark|. They ignore bias, so ``bias_exceeds_tol`` flags FDMC rows where the
+    truncation bias alone is larger than the tolerance.
+    """
+    idx = summary_df.groupby(["Estimator", "Product", "Greek"])["N"].idxmax()
+    top = summary_df.loc[idx].copy()
+
+    top["time_per_path_ns"] = top["time_per_path_s"] * 1e9
+    top["efficiency"] = top["var_per_path"] * top["time_per_path_s"]
+
+    ref = top[(top["Method"] == "FDMC") & np.isclose(top["eps"].fillna(-1.0), fdmc_eps)]
+    ref = ref.set_index(["Product", "Greek"])[["var_per_path", "efficiency"]]
+    keys = list(zip(top["Product"], top["Greek"]))
+    top["n_ratio_vs_FDMC"] = top["var_per_path"].to_numpy() / ref.loc[keys, "var_per_path"].to_numpy()
+    top["efficiency_ratio_vs_FDMC"] = top["efficiency"].to_numpy() / ref.loc[keys, "efficiency"].to_numpy()
+
+    tol = rel_tol * top["benchmark"].abs()
+    top["tol"] = tol
+    top["n_star"] = required_paths(top["var_per_path"], tol, z)
+    top["time_star_s"] = top["n_star"] * top["time_per_path_s"]
+    top["bias_exceeds_tol"] = (top["bias"].abs() > tol) & (top["bias"].abs() > 3 * top["bias_se"])
+
+    cols = [
+        "Product", "Greek", "Estimator", "Method", "eps", "N", "benchmark", "bias", "bias_se",
+        "var_per_path", "time_per_path_ns", "efficiency", "n_ratio_vs_FDMC", "efficiency_ratio_vs_FDMC",
+        "tol", "n_star", "time_star_s", "bias_exceeds_tol",
+    ]
+    return top[cols].sort_values(["Product", "Greek", "efficiency"]).reset_index(drop=True)
+
+
+def expected_error_under_budget(
+    efficiency_df: pd.DataFrame,
+    budgets_ms: Sequence[float] = (250.0, 1000.0, 5000.0),
+) -> pd.DataFrame:
+    """Expected RMSE when each estimator gets a fixed CPU time budget.
+
+    N = budget / time_per_path, and RMSE = sqrt(bias^2 + Var / N). The bias term is kept only
+    when significant (|bias| > 3 bias_se), so unbiased methods are not given a fake noise floor.
+    Long format: one row per (Product, Greek, Estimator, budget_ms).
+    """
+    rows = []
+    for _, row in efficiency_df.iterrows():
+        bias = row["bias"] if abs(row["bias"]) > 3 * row["bias_se"] else 0.0
+        for budget in budgets_ms:
+            n = budget * 1e-3 / (row["time_per_path_ns"] * 1e-9)
+            rows.append({
+                "Product": row["Product"],
+                "Greek": row["Greek"],
+                "Estimator": row["Estimator"],
+                "budget_ms": budget,
+                "N": int(n),
+                "expected_rmse": float(np.sqrt(bias**2 + row["var_per_path"] / n)),
+            })
+    return pd.DataFrame(rows)

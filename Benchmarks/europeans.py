@@ -10,7 +10,11 @@ root_dir = str(Path(__file__).resolve().parent.parent)
 if root_dir not in sys.path:
     sys.path.insert(0, root_dir)
 
-from Methods.Analytic.europeans import greeks_european_call, greeks_european_barrier_up_and_out_call, greeks_european_digital_call
+from Methods.Analytic.europeans import (
+    greeks_european_call,
+    greeks_european_barrier_up_and_out_call,
+    greeks_european_digital_call,
+)
 
 def benchmark_greeks_european_call(params: dict[str, float]) -> dict[str, float]:
     return greeks_european_call(params)
@@ -27,7 +31,7 @@ def _compute_all_european_greeks(params: dict[str, float]) -> DataFrame:
     results = {
         "call": greeks_european_call(params),
         "digital": greeks_european_digital_call(params),
-        "up_and_out": greeks_european_barrier_up_and_out_call(params),
+        "call_terminal_knockout": greeks_european_barrier_up_and_out_call(params),
     }
     return DataFrame(results)
 
@@ -38,7 +42,7 @@ if __name__ == "__main__":
         "T": 1,
         "r": 0.05,
         "q": 0.02,
-        "H": 110,
+        "H": 105.25,
         "sigma": 0.20,
     }
     results = _compute_all_european_greeks(params)

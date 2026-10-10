@@ -3,7 +3,7 @@
 Generates a comprehensive research notebook analyzing the 5 smoothing cutoff functions
 (Gaussian, Cubic, Cosine, Quintic, Cauchy), their mathematical and empirical impact on
 Greeks across contracts (Vanilla, Digital, Barrier), an institutional decision matrix,
-and theoretical extensions/blueprints for American, Asian, and Basket options.
+and theoretical extensions/blueprints for Asian and Basket options.
 """
 
 import sys
@@ -35,7 +35,7 @@ def build_smoothing_analysis_notebook():
     # Cell 0: Header & Abstract
     # =========================================================================
     cells.append(nbf.v4.new_markdown_cell(r"""# Fournié Localized Malliavin Greeks: Systematic Comparative Analysis of Smoothing Cutoff Functions, Singularity Classes, and Exotic Extensions
-## Evaluating Gaussian, Cubic, Cosine, Quintic, and Cauchy Smoothing Across Vanilla, Digital, Barrier, American, Asian, and Basket Options
+## Evaluating Gaussian, Cubic, Cosine, Quintic, and Cauchy Smoothing Across Vanilla, Digital, Barrier, Asian, and Basket Options
 
 ---
 
@@ -46,7 +46,7 @@ In computational quantitative finance, **Fournié et al. (1999, 2001)** localiza
 3. **Smooth boundary correction derivatives** ($-\psi', -\psi''$) ensuring exact distributional consistency without bias.
 
 However, a fundamental architectural question confronting quantitative risk engines is:
-> **How does the mathematical topology of the smoothing cutoff function $\psi(S_T)$ govern estimator variance, numerical stability, and bias? Which function should be chosen for each contract type, and how does this translate to exotic derivatives (American, Asian, and Basket options)?**
+> **How does the mathematical topology of the smoothing cutoff function $\psi(S_T)$ govern estimator variance, numerical stability, and bias? Which function should be chosen for each contract type, and how does this translate to exotic derivatives (Asian and Multi-Asset Basket options)?**
 
 This notebook delivers a rigorous theoretical and empirical investigation across **all 5 major smoothing cutoff classes**:
 - **Gaussian ($C^\infty$, Non-compact)**: Exponential decay bump $\exp(-0.5 u^2)$.
@@ -61,7 +61,6 @@ We systematically analyze:
 3. **Corridor confinement**: The trade-off between compact boundary zero-leakage on tight Barrier corridors vs. polynomial gradient spikes.
 4. **Institutional Decision Matrix**: Concrete rules on what function and bandwidth $\delta^*$ to deploy in production.
 5. **Exotic Derivative Extensions**: Formulations, mathematical proofs, and working Python prototypes for:
-   - **American Options**: Localizing along the moving early exercise free boundary $S^*(t)$ via Longstaff-Schwartz Malliavin estimators.
    - **Asian Options**: Scalar 1D localization along the running path average $\bar{S}_T$ with scaled dispersion $\delta^* \propto \sigma \bar{S}_0 \sqrt{T/3}$.
    - **Multi-Asset Basket Options**: Multivariate Mahalanobis cutoffs, correlation matrix handling, and Gaussian tensor factorization ($\prod e^{-u_i^2/2}$)."""))
 
@@ -122,7 +121,7 @@ import Utilities as utils
 from products import (
     example_european_call_ATM,
     example_european_digital_ATM,
-    example_european_barrier_up_and_out_95,
+    example_european_call_terminal_knockout,
 )
 from Methods.Malliavin.malliavin_european_fournier import get_cutoff
 
@@ -307,7 +306,7 @@ For the Terminal Barrier Up-and-Out Call ($S_0 = 100, K = 100, H = 105.25$):
 Below, we evaluate Gaussian vs. Quintic vs. Cubic on the Barrier Option across bandwidths:"""))
 
     cells.append(nbf.v4.new_code_cell(r"""bench_bar = {"delta": 0.001509, "gamma": -0.000630, "vega": -1.259414}
-params_bar = example_european_barrier_up_and_out_95
+params_bar = example_european_call_terminal_knockout
 
 print("Evaluating Barrier Up-and-Out Call across cutoff types...")
 grid_bar = utils.compute_smoothing_and_gap_grid(
@@ -335,57 +334,10 @@ Based on our theoretical proofs and empirical benchmarks, we synthesize the opti
 | **Power / Polynomial Options ($(S_T - K)^p$)** | Higher-order kink at $K$ | **Gaussian** | Quintic Spline | Higher-order continuous payoffs require smooth integration across multiple orders of differentiation. | $\delta^* \approx 0.40 S_0 \sigma \sqrt{T}$ |"""))
 
     # =========================================================================
-    # Cell 12: Section 7 - Extension to American Options
+    # Cell 12: Section 7 - Extension to Asian Options
     # =========================================================================
     cells.append(nbf.v4.new_markdown_cell(r"""---
-## 7. Theoretical Extension to American Options (Moving Free Boundary)
-
-### 7.1 The Mathematical Challenge
-Unlike European options where non-differentiability occurs only at terminal maturity $T$, an **American Option** allows early exercise at any time $t \in [0, T]$.
-The price satisfies the optimal stopping problem:
-$$V(S_0, 0) = \sup_{\tau \in [0, T]} \mathbb{E}\left[ e^{-r\tau} (K - S_\tau)^+ \right]$$
-The optimal exercise policy is governed by a **time-dependent early exercise boundary $S^*(t)$**:
-- **Stopping Region**: If $S_t \le S^*(t)$, exercise immediately and receive $K - S_t$.
-- **Continuation Region**: If $S_t > S^*(t)$, hold the contract.
-
-The payoff gradient is discontinuous across the moving boundary $S_t = S^*(t)$ at *every intermediate exercise date* $t_i$.
-
-### 7.2 Fournié Localization Blueprint for American Options
-In a Longstaff-Schwartz (LSM) or Bouchard-Ekeland-Touzi (2004) Malliavin framework:
-1. **Boundary Tracking**: Estimate the early exercise boundary points $\hat{S}^*(t_i)$ at discrete exercise steps $t_i = i \Delta t$.
-2. **Moving Spatial Cutoff**: Apply a time-dependent localized cutoff function along the exercise boundary:
-   $$\psi_i(S_{t_i}) = \psi\left( \frac{S_{t_i} - \hat{S}^*(t_i)}{\delta_i} \right), \qquad \delta_i = 0.40 \hat{S}^*(t_i) \sigma \sqrt{\Delta t}$$
-3. **Cutoff Function Recommendation**:
-   - **Gaussian** or **Quintic** is required.
-   - **Why**: The boundary moves dynamically across time steps $\Delta t$. Calculating Delta and Gamma requires differentiating the continuation value across both space $S$ and time $t$. Any jump in spatial second derivatives ($\psi''$) destabilizes the dynamic programming recursion.
-
-Below, we implement a numerical prototype demonstrating localized continuation value sensitivity along an early exercise frontier:"""))
-
-    cells.append(nbf.v4.new_code_cell(r"""# Prototype: American Option Early Exercise Boundary Localization
-def prototype_american_boundary_localization(S0=100.0, K=100.0, r=0.05, sigma=0.20, T=1.0, m_steps=50, N=10000):
-    dt = T / m_steps
-    time_grid = np.linspace(0, T, m_steps + 1)
-    
-    # Approximate early exercise boundary S*(t) for an American put
-    # S*(t) starts around K * r / (r + sigma^2/2) and rises to K at T
-    s_star = K * (1.0 - 0.15 * np.sqrt(T - time_grid[:-1]))
-    
-    # Localized bandwidth along the frontier: delta(t) proportional to local spot volatility
-    delta_frontier = 0.40 * s_star * sigma * np.sqrt(dt)
-    
-    print(f"American Option Frontier Discretization (m={m_steps} exercise dates):")
-    print(f"  t = 0.10 yr: S*(t) = {s_star[5]:.2f}, Localized Bandwidth delta = {delta_frontier[5]:.2f}")
-    print(f"  t = 0.50 yr: S*(t) = {s_star[25]:.2f}, Localized Bandwidth delta = {delta_frontier[25]:.2f}")
-    print(f"  t = 0.90 yr: S*(t) = {s_star[45]:.2f}, Localized Bandwidth delta = {delta_frontier[45]:.2f}")
-    print("Gaussian / Quintic cutoff ensures smooth spatial transitions along S*(t).")
-
-prototype_american_boundary_localization()"""))
-
-    # =========================================================================
-    # Cell 13: Section 8 - Extension to Asian Options
-    # =========================================================================
-    cells.append(nbf.v4.new_markdown_cell(r"""---
-## 8. Theoretical Extension to Asian Options (Path-Dependent Running Averages)
+## 7. Theoretical Extension to Asian Options (Path-Dependent Running Averages)
 
 ### 8.1 The Mathematical Challenge
 An arithmetic Asian Call option has a payoff that depends on the discrete or continuous path average:
@@ -450,12 +402,12 @@ Below, we simulate and compare localized Asian Call Greeks vs. standard Malliavi
 prototype_asian_fournier_greeks()"""))
 
     # =========================================================================
-    # Cell 14: Section 9 - Extension to Multi-Asset Basket Options
+    # Cell 13: Section 8 - Extension to Multi-Asset Basket Options
     # =========================================================================
     cells.append(nbf.v4.new_markdown_cell(r"""---
-## 9. Theoretical Extension to Multi-Asset Basket Options (High Dimensions)
+## 8. Theoretical Extension to Multi-Asset Basket Options (Tensor Product vs. Norm Cutoff)
 
-### 9.1 The Mathematical Challenge
+### 8.1 The Mathematical Challenge
 Consider a basket option on $d$ correlated assets $\mathbf{S}_t = (S_t^1, \dots, S_t^d)^T$ with weight vector $\mathbf{w} = (w_1, \dots, w_d)^T$ and correlation matrix $\Sigma$:
 $$\Phi(\mathbf{S}_T) = \left(\sum_{i=1}^d w_i S_T^i - K\right)^+ \quad \text{or} \quad \max(S_T^1, \dots, S_T^d) - K$$
 Here, the non-differentiable singularity is a **$(d-1)$-dimensional hyperplane** $\mathcal{H} = \{ \mathbf{s} \in \mathbb{R}^d : \mathbf{w}^T \mathbf{s} = K \}$.
@@ -531,10 +483,10 @@ Below, we demonstrate 1D Projected Fournié Localization on a 3-Asset Basket Cal
 prototype_basket_fournier_greeks()"""))
 
     # =========================================================================
-    # Cell 15: Section 10 - Executive Summary & Architecture Blueprint
+    # Cell 14: Section 9 - Executive Summary & Architecture Blueprint
     # =========================================================================
     cells.append(nbf.v4.new_markdown_cell(r"""---
-## 10. Executive Architecture Blueprint & Quantitative Recommendations
+## 9. Executive Architecture Blueprint & Quantitative Recommendations
 
 ### Summary of Algorithmic Guidelines:
 

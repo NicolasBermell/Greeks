@@ -16,15 +16,13 @@ def MC_european_call_option(S0: float, K: float, T: float, r: float, q: float, s
         float: Price of the European call option.
     """
     if paths is None:
-        np.random.seed(seed)
-        paths = np.random.normal(0, np.sqrt(T), N)
+        paths = np.random.default_rng(seed).standard_normal(N) * np.sqrt(T)
     S_T = S0 * np.exp((r - q - 0.5 * sigma**2) * T + sigma * paths)
     return float(np.mean(np.maximum(S_T - K, 0)) * np.exp(-r * T))
 
 def MC_european_barrier_up_and_out_call_option(S0: float, K: float, T: float, r: float, q: float, sigma: float, H: float, seed: int = 42, N: int = 10000, paths: np.ndarray | None = None) -> float:
     if paths is None:
-        np.random.seed(seed)
-        paths = np.random.normal(0, np.sqrt(T), N)
+        paths = np.random.default_rng(seed).standard_normal(N) * np.sqrt(T)
     S_T = S0 * np.exp((r - q - 0.5 * sigma**2) * T + sigma * paths)
     
     payoffs = np.maximum(S_T - K, 0)
@@ -34,11 +32,11 @@ def MC_european_barrier_up_and_out_call_option(S0: float, K: float, T: float, r:
 
 def MC_european_digital_call_option(S0: float, K: float, T: float, r: float, q: float, sigma: float, seed: int = 42, N: int = 10000, paths: np.ndarray | None = None) -> float:
     if paths is None:
-        np.random.seed(seed)
-        paths = np.random.normal(0, np.sqrt(T), N)
+        paths = np.random.default_rng(seed).standard_normal(N) * np.sqrt(T)
     S_T = S0 * np.exp((r - q - 0.5 * sigma**2) * T + sigma * paths)
 
     payoffs = np.maximum(S_T - K, 0)
     payoffs[S_T > K] = 1
 
     return float(np.mean(payoffs) * np.exp(-r * T))
+

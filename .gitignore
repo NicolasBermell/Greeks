@@ -2,3 +2,5 @@
 __pycache__/*
 *.cpython
 *.pyc
+greeks.egg-info
+greeks.egg-info/*

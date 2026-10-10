@@ -267,5 +267,3 @@ def greeks_european_barrier_up_and_out_call(params: dict[str, float]) -> dict[st
         "gamma": gamma_barrier_up_and_out_call(S0, K, T, r, q, sigma, H),
         "vega": vega_barrier_up_and_out_call(S0, K, T, r, q, sigma, H),
     }
-
-

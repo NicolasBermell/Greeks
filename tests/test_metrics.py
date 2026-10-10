@@ -138,8 +138,8 @@ class TestMetricsAndComparisons(unittest.TestCase):
         self.assertFalse(utils.is_catastrophic_eps("Digital European ATM", "gamma", 0.1, -0.0002, -0.0002))
 
         # 4. Discontinuous Delta < 0.01
-        self.assertTrue(utils.is_catastrophic_eps("Barrier European Up and Out 95", "delta", 0.005, 0.0015, 0.0015))
-        self.assertFalse(utils.is_catastrophic_eps("Barrier European Up and Out 95", "delta", 0.01, 0.0015, 0.0015))
+        self.assertTrue(utils.is_catastrophic_eps("Call with terminal knock-out", "delta", 0.005, 0.0015, 0.0015))
+        self.assertFalse(utils.is_catastrophic_eps("Call with terminal knock-out", "delta", 0.01, 0.0015, 0.0015))
 
         # Vectorized series test
         prods = pd.Series(["Call European ATM", "Digital European ATM", "Call European ATM"])
@@ -349,11 +349,11 @@ class TestMetricsAndComparisons(unittest.TestCase):
     def test_compute_fournier_delta(self):
         """Test Fournié delta gap calculation for vanilla, digital, and barrier options."""
         from Methods.Malliavin import compute_fournier_delta
-        from products import example_european_call_ATM, example_european_digital_ATM, example_european_barrier_up_and_out_95
+        from products import example_european_call_ATM, example_european_digital_ATM, example_european_call_terminal_knockout
 
         d_call = compute_fournier_delta(example_european_call_ATM, is_barrier=False)
         d_dig = compute_fournier_delta(example_european_digital_ATM, is_barrier=False)
-        d_bar = compute_fournier_delta(example_european_barrier_up_and_out_95, is_barrier=True)
+        d_bar = compute_fournier_delta(example_european_call_terminal_knockout, is_barrier=True)
 
         self.assertAlmostEqual(d_call, 8.0, places=6)
         self.assertAlmostEqual(d_dig, 8.0, places=6)
@@ -405,9 +405,42 @@ class TestMetricsAndComparisons(unittest.TestCase):
         )
         budgets = sorted(comp["Budget (ms)"].unique())
         self.assertEqual(budgets, [250.0, 500.0, 1000.0, 2500.0, 5000.0])
-        self.assertIn("Fournier Abs Error", comp.columns)
+        self.assertIn("Fournié Abs Error", comp.columns)
         self.assertIn("Malliavin Abs Error", comp.columns)
+
+    def test_plot_runtime_vs_simulations(self):
+        """Test that plot_runtime_vs_simulations creates a valid matplotlib Figure."""
+        joint = utils.benchmark_joint_fdmc_vs_malliavin(
+            n_sims=[10_000, 100_000], num_repeats=1, include_fournier=True
+        )
+        fig = utils.plot_runtime_vs_simulations(joint)
+        self.assertIsNotNone(fig)
+        self.assertEqual(len(fig.axes), len(joint["Product"].unique()))
+        import matplotlib.pyplot as plt
+        plt.close(fig)
+
+    def test_plot_budget_simulations_vs_time(self):
+        """Test that plot_budget_simulations_vs_time creates a valid matplotlib Figure for bars and lines."""
+        f_met = utils.compute_error_metrics(self.fdmc_df, self.benchmarks_df)
+        m_met = utils.compute_error_metrics(self.malliavin_df, self.benchmarks_df)
+        four_met = utils.compute_error_metrics(self.fournier_df, self.benchmarks_df)
+
+        comp = utils.evaluate_fixed_cpu_budget_comparison(
+            f_met, m_met, self.fdmc_timing, self.mal_timing,
+            budgets_ms=[250.0, 500.0],
+            fournier_metrics_df=four_met, fournier_timing_df=self.four_timing,
+        )
+        import matplotlib.pyplot as plt
+        fig_bars = utils.plot_budget_simulations_vs_time(comp, chart_type="bars")
+        self.assertIsNotNone(fig_bars)
+        plt.close(fig_bars)
+
+        fig_lines = utils.plot_budget_simulations_vs_time(comp, chart_type="lines")
+        self.assertIsNotNone(fig_lines)
+        plt.close(fig_lines)
 
 
 if __name__ == "__main__":
     unittest.main()
+
+

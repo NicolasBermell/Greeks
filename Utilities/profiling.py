@@ -38,7 +38,7 @@ from Methods.Malliavin import (
     malliavin_fournier_greeks_european_digital_call,
 )
 from products import (
-    example_european_barrier_up_and_out_95,
+    example_european_call_terminal_knockout,
     example_european_call_ATM,
     example_european_digital_ATM,
 )
@@ -57,40 +57,41 @@ GREEK_FN_MAP = {
         "vega": _vega_european_digital_call,
         "params": example_european_digital_ATM,
     },
-    "Barrier European Up and Out 95": {
+    "Call with terminal knock-out": {
         "delta": _delta_european_barrier_up_and_out_call,
         "gamma": _gamma_european_barrier_up_and_out_call,
         "vega": _vega_european_barrier_up_and_out_call,
-        "params": example_european_barrier_up_and_out_95,
+        "params": example_european_call_terminal_knockout,
     },
 }
 
 PRODUCT_FN_MAP = {
     "Call European ATM": (FDMC_geeks_european_call, example_european_call_ATM),
     "Digital European ATM": (FDMC_geeks_european_digital_call, example_european_digital_ATM),
-    "Barrier European Up and Out 95": (
+    "Call with terminal knock-out": (
         FDMC_geeks_european_barrier_up_and_out_call,
-        example_european_barrier_up_and_out_95,
+        example_european_call_terminal_knockout,
     ),
 }
 
 MALLIAVIN_PRODUCT_FN_MAP = {
     "Call European ATM": (malliavin_greeks_european_call, example_european_call_ATM),
     "Digital European ATM": (malliavin_greeks_european_digital_call, example_european_digital_ATM),
-    "Barrier European Up and Out 95": (
+    "Call with terminal knock-out": (
         malliavin_greeks_european_barrier_up_and_out_call,
-        example_european_barrier_up_and_out_95,
+        example_european_call_terminal_knockout,
     ),
 }
 
 FOURNIER_PRODUCT_FN_MAP = {
     "Call European ATM": (malliavin_fournier_greeks_european_call, example_european_call_ATM),
     "Digital European ATM": (malliavin_fournier_greeks_european_digital_call, example_european_digital_ATM),
-    "Barrier European Up and Out 95": (
+    "Call with terminal knock-out": (
         malliavin_fournier_greeks_european_barrier_up_and_out_call,
-        example_european_barrier_up_and_out_95,
+        example_european_call_terminal_knockout,
     ),
 }
+
 
 
 def benchmark_per_greek_execution_time(
@@ -462,7 +463,7 @@ def benchmark_fournier_execution_time(
                 "time_ms_mean": mean_t,
                 "time_ms_std": float(np.std(times)),
                 "ms_per_10k_paths": mean_t / (n / 10_000.0),
-                "Method": "Fournier Malliavin",
+                "Method": "Fournié Malliavin",
             })
     return pd.DataFrame(records)
 
@@ -508,6 +509,7 @@ def benchmark_joint_fdmc_vs_malliavin(
         "time_ms_mean_mal", "ms_per_10k_paths_mal",
         "speedup_factor"
     ]]
+
 
 
 def evaluate_fixed_cpu_budget_comparison(
@@ -625,10 +627,10 @@ def evaluate_fixed_cpu_budget_comparison(
 
                     gain_four_fdmc = (fdmc_err / four_err) if (four_err > 0 and not np.isnan(fdmc_err)) else np.nan
                     gain_four_mal = (mal_err / four_err) if (four_err > 0 and not np.isnan(mal_err)) else np.nan
-                    rec["Fournier Achievable N"] = f"{raw_n_four:_}"
-                    rec["Fournier Abs Error"] = four_err
-                    rec["Fournier Gain vs FDMC"] = gain_four_fdmc
-                    rec["Fournier Gain vs Std"] = gain_four_mal
+                    rec["Fournié Achievable N"] = f"{raw_n_four:_}"
+                    rec["Fournié Abs Error"] = four_err
+                    rec["Fournié Gain vs FDMC"] = gain_four_fdmc
+                    rec["Fournié Gain vs Std"] = gain_four_mal
 
                 records.append(rec)
 
@@ -826,7 +828,7 @@ def plot_comparative_budget_accuracy_bars(
 
     budgets = sorted(sub["Budget (ms)"].unique())
     x = np.arange(len(budgets))
-    has_four = "Fournier Abs Error" in sub.columns and not sub["Fournier Abs Error"].isna().all()
+    has_four = "Fournié Abs Error" in sub.columns and not sub["Fournié Abs Error"].isna().all()
     width = 0.26 if has_four else 0.35
 
     for ax, greek, gname in zip(axes, greeks, greek_names):
@@ -836,7 +838,7 @@ def plot_comparative_budget_accuracy_bars(
         mal_errs = g_data["Malliavin Abs Error"].tolist()
 
         if has_four:
-            four_errs = g_data["Fournier Abs Error"].tolist()
+            four_errs = g_data["Fournié Abs Error"].tolist()
             ax.bar(x - width, fdmc_errs, width, label=fdmc_label, color="#e07a5f")
             ax.bar(x, mal_errs, width, label="Std Malliavin", color="#2a9d8f")
             ax.bar(x + width, four_errs, width, label="Fournié Malliavin", color="#3d5a80")
@@ -858,4 +860,222 @@ def plot_comparative_budget_accuracy_bars(
     fig.suptitle(f"{product}: Absolute Error Under Institutional Latency SLAs{title_suffix}", fontsize=13)
     plt.tight_layout()
     return fig
+
+
+def plot_runtime_vs_simulations(
+    joint_timing_df: pd.DataFrame,
+    figsize: tuple[int, int] = (16, 5),
+) -> plt.Figure:
+    """Plots joint wall-clock execution time (ms) on the y-axis vs. number of simulations on the x-axis.
+
+    This visualizes computational scaling and throughput: for any target time on the y-axis,
+    it shows the number of simulations completed in that time across FDMC, Std Malliavin,
+    and Fournié Localized Malliavin.
+
+    Args:
+        joint_timing_df: DataFrame from benchmark_joint_fdmc_vs_malliavin.
+        figsize: Figure dimensions (width, height).
+
+    Returns:
+        plt.Figure: Matplotlib figure object.
+    """
+    products = joint_timing_df["Product"].unique()
+    fig, axes = plt.subplots(1, len(products), figsize=figsize, sharey=True)
+    if len(products) == 1:
+        axes = [axes]
+
+    has_fournier = "time_ms_mean_fournier" in joint_timing_df.columns
+
+    for ax, prod in zip(axes, products):
+        sub = joint_timing_df[joint_timing_df["Product"] == prod].sort_values("N")
+        n_vals = sub["N"].values
+
+        # FDMC
+        ax.plot(
+            n_vals,
+            sub["time_ms_mean_fdmc"],
+            marker="o",
+            linestyle="--",
+            color="#e07a5f",
+            linewidth=2.2,
+            markersize=7,
+            label="FDMC (ε=0.01)",
+        )
+
+        # Std Malliavin
+        ax.plot(
+            n_vals,
+            sub["time_ms_mean_mal"],
+            marker="s",
+            linestyle="-",
+            color="#2a9d8f",
+            linewidth=2.5,
+            markersize=7,
+            label="Std Malliavin",
+        )
+
+        # Fournié Malliavin
+        if has_fournier:
+            ax.plot(
+                n_vals,
+                sub["time_ms_mean_fournier"],
+                marker="D",
+                linestyle="-.",
+                color="#3d5a80",
+                linewidth=2.2,
+                markersize=7,
+                label="Fournié Malliavin",
+            )
+
+        # Annotate mean speedup
+        mean_speedup = sub["speedup_factor"].mean()
+        speedup_text = f"Std Malliavin Speedup: {mean_speedup:.1f}×"
+        if has_fournier and "speedup_factor_fournier" in sub.columns:
+            mean_four_speedup = sub["speedup_factor_fournier"].mean()
+            speedup_text += f"\nFournié Speedup: {mean_four_speedup:.1f}×"
+
+        ax.text(
+            0.05,
+            0.92,
+            speedup_text,
+            transform=ax.transAxes,
+            fontsize=9.5,
+            fontweight="bold",
+            va="top",
+            bbox=dict(boxstyle="round,pad=0.4", facecolor="#f8f9fa", edgecolor="#ced4da", alpha=0.9),
+        )
+
+        ax.set_xscale("log")
+        ax.set_yscale("log")
+        ax.set_xlabel("Number of Simulations in that Time ($N$)", fontsize=10.5)
+        ax.set_title(f"{prod}", fontsize=12, fontweight="bold")
+        ax.grid(True, which="both", alpha=0.3)
+
+        if ax == axes[0]:
+            ax.set_ylabel("Joint Wall-Clock Time (ms)", fontsize=11)
+            ax.legend(frameon=True, fontsize=9.5, loc="lower right")
+
+    fig.suptitle(
+        "Computational Scalability: Joint Execution Time (ms) vs. Number of Simulations in that Time",
+        fontsize=13.5,
+        y=1.02,
+    )
+    plt.tight_layout()
+    return fig
+
+
+def plot_budget_simulations_vs_time(
+    comp_budget_df: pd.DataFrame,
+    figsize: tuple[int, int] = (16, 6),
+    chart_type: str = "bars",
+) -> plt.Figure:
+    """Plots the institutional latency budget SLA (time in ms) on the y-axis vs. achievable simulations on the x-axis.
+
+    Displays horizontal bars (or curves) for each SLA budget tier (250ms - 5000ms), showing the exact
+    simulation throughput achieved by FDMC, Std Malliavin, and Fournié Malliavin in that time.
+
+    Args:
+        comp_budget_df: DataFrame from evaluate_fixed_cpu_budget_comparison.
+        figsize: Figure dimensions (width, height).
+        chart_type: 'bars' for horizontal grouped bar chart, or 'lines' for throughput curves.
+
+    Returns:
+        plt.Figure: Matplotlib figure object.
+    """
+    def _parse_n(val):
+        if pd.isna(val):
+            return np.nan
+        return float(str(val).replace("_", "").replace(",", ""))
+
+    products = comp_budget_df["Product"].unique()
+    fig, axes = plt.subplots(1, len(products), figsize=figsize, sharey=True)
+    if len(products) == 1:
+        axes = [axes]
+
+    budgets = sorted(comp_budget_df["Budget (ms)"].unique())
+    y_indices = np.arange(len(budgets))
+    has_four = "Fournié Achievable N" in comp_budget_df.columns
+
+    for ax, prod in zip(axes, products):
+        sub = (
+            comp_budget_df[comp_budget_df["Product"] == prod]
+            .drop_duplicates(subset=["Budget (ms)"])
+            .sort_values("Budget (ms)")
+        )
+
+        fdmc_vals = [_parse_n(v) for v in sub["FDMC Achievable N"]]
+        mal_vals = [_parse_n(v) for v in sub["Malliavin Achievable N"]]
+        four_vals = [_parse_n(v) for v in sub["Fournié Achievable N"]] if has_four else []
+
+        if chart_type == "lines":
+            b_vals = sub["Budget (ms)"].values
+            ax.plot(fdmc_vals, b_vals, marker="o", linestyle="--", color="#e07a5f", linewidth=2.2, label="FDMC (ε=0.01)")
+            ax.plot(mal_vals, b_vals, marker="s", linestyle="-", color="#2a9d8f", linewidth=2.5, label="Std Malliavin")
+            if has_four:
+                ax.plot(four_vals, b_vals, marker="D", linestyle="-.", color="#3d5a80", linewidth=2.2, label="Fournié Malliavin")
+            ax.set_yscale("log")
+            ax.set_yticks(budgets)
+            ax.set_yticklabels([f"{int(b)} ms" for b in budgets], fontsize=10)
+        else:
+            height = 0.26 if has_four else 0.38
+            if has_four:
+                rects_f = ax.barh(y_indices - height, fdmc_vals, height, label="FDMC (ε=0.01)", color="#e07a5f", alpha=0.9)
+                rects_m = ax.barh(y_indices, mal_vals, height, label="Std Malliavin", color="#2a9d8f", alpha=0.9)
+                rects_4 = ax.barh(y_indices + height, four_vals, height, label="Fournié Malliavin", color="#3d5a80", alpha=0.9)
+
+                for rects, vals in zip([rects_f, rects_m, rects_4], [fdmc_vals, mal_vals, four_vals]):
+                    for r, v in zip(rects, vals):
+                        if not np.isnan(v) and v > 0:
+                            v_str = f"{v/1e6:.1f}M" if v >= 1e6 else f"{int(v):_}"
+                            ax.text(
+                                v * 1.08,
+                                r.get_y() + r.get_height() / 2.0,
+                                v_str,
+                                ha="left",
+                                va="center",
+                                fontsize=7.5,
+                                fontweight="bold",
+                                color="#333333",
+                            )
+            else:
+                rects_f = ax.barh(y_indices - height / 2, fdmc_vals, height, label="FDMC (ε=0.01)", color="#e07a5f", alpha=0.9)
+                rects_m = ax.barh(y_indices + height / 2, mal_vals, height, label="Std Malliavin", color="#2a9d8f", alpha=0.9)
+                for rects, vals in zip([rects_f, rects_m], [fdmc_vals, mal_vals]):
+                    for r, v in zip(rects, vals):
+                        if not np.isnan(v) and v > 0:
+                            v_str = f"{v/1e6:.1f}M" if v >= 1e6 else f"{int(v):_}"
+                            ax.text(
+                                v * 1.08,
+                                r.get_y() + r.get_height() / 2.0,
+                                v_str,
+                                ha="left",
+                                va="center",
+                                fontsize=7.5,
+                                fontweight="bold",
+                                color="#333333",
+                            )
+
+            ax.set_yticks(y_indices)
+            ax.set_yticklabels([f"{int(b)} ms" for b in budgets], fontsize=10)
+
+        ax.set_xscale("log")
+        ax.set_xlabel("Number of Simulations in that Time ($N$)", fontsize=10.5)
+        ax.set_title(f"{prod}", fontsize=12, fontweight="bold")
+        ax.grid(axis="x", which="both", alpha=0.3)
+
+        curr_xlim = ax.get_xlim()
+        ax.set_xlim(curr_xlim[0], curr_xlim[1] * 2.8)
+
+        if ax == axes[0]:
+            ax.set_ylabel("Latency Budget SLA (Time in ms)", fontsize=11)
+            ax.legend(frameon=True, fontsize=9.5, loc="lower right")
+
+    fig.suptitle(
+        "Institutional Latency Budget Throughput: Number of Simulations Achieved in that Time",
+        fontsize=13.5,
+        y=1.02,
+    )
+    plt.tight_layout()
+    return fig
+
 

@@ -325,14 +325,28 @@ def plot_error_heatmaps(
     return fig
 
 
+def _format_bar_val(val: float) -> str:
+    """Formats Greek values cleanly for bar chart labels."""
+    if abs(val) == 0:
+        return "0.00"
+    elif abs(val) < 0.001:
+        return f"{val:.2e}"
+    elif abs(val) < 0.1:
+        return f"{val:.4f}"
+    elif abs(val) < 10:
+        return f"{val:.3f}"
+    else:
+        return f"{val:.2f}"
+
+
 def plot_greeks_comparison_bars(
     metrics_df: pd.DataFrame,
     product: str,
     n_choice: int | None = None,
     criterion: str = "abs_error",
-    figsize: tuple[int, int] = (10, 5),
+    figsize: tuple[int, int] = (14, 5.5),
 ) -> plt.Figure:
-    """Plots a side-by-side bar chart of Benchmark vs best FDMC values for all three Greeks."""
+    """Plots a side-by-side bar chart of Benchmark vs best FDMC values across two scales (Delta/Gamma and Vega)."""
     from Utilities.metrics import extract_optimal_eps
 
     if n_choice is None:
@@ -341,42 +355,95 @@ def plot_greeks_comparison_bars(
     opt_df = extract_optimal_eps(metrics_df, criterion=criterion)
     sub = opt_df[(opt_df["Product"] == product) & (opt_df["N"] == n_choice)]
 
-    fig, ax = plt.subplots(figsize=figsize)
-    x = np.arange(len(sub))
-    width = 0.35
+    sub_dg = sub[sub["Greek"].isin(["delta", "gamma"])].copy()
+    sub_v = sub[sub["Greek"] == "vega"].copy()
 
-    greeks = sub["Greek"].tolist()
-    labels = [GREEK_LABELS.get(g, g) for g in greeks]
-    bench_vals = sub["benchmark_value"].tolist()
-    fdmc_vals = sub["fdmc_value"].tolist()
-    abs_errs = sub["min_abs_error"].tolist()
+    fig, (ax_dg, ax_v) = plt.subplots(1, 2, figsize=figsize, gridspec_kw={"width_ratios": [2.2, 1.2]})
+    width = 0.32
 
-    rects1 = ax.bar(x - width / 2, bench_vals, width, label="Analytical Benchmark", color="#2b5c8f")
-    rects2 = ax.bar(x + width / 2, fdmc_vals, width, label=f"FDMC ($N={n_choice:_}$)", color="#e07a5f")
+    panels = [
+        (ax_dg, sub_dg, [r"$\Delta$", r"$\Gamma$"], r"$\Delta$ (Delta) & $\Gamma$ (Gamma)"),
+        (ax_v, sub_v, [r"$\mathcal{V}$"], r"$\mathcal{V}$ (Vega)"),
+    ]
 
-    for i in range(len(x)):
-        err_text = f"|err|: {abs_errs[i]:.2e}" if abs_errs[i] < 0.001 else f"|err|: {abs_errs[i]:.4f}"
-        y_pos = max(bench_vals[i], fdmc_vals[i])
-        y_offset = abs(y_pos) * 0.05 + 0.001
-        ax.text(
-            x[i],
-            y_pos + y_offset,
-            err_text,
-            ha="center",
-            va="bottom",
-            fontsize=9.5,
-            fontweight="bold",
-            color="#333",
-        )
+    handles, legend_labels = [], []
 
-    ax.set_ylabel("Greek Value")
-    ax.set_title(f"{product}: Analytical Benchmark vs. Optimal FDMC")
-    ax.set_xticks(x)
-    ax.set_xticklabels(labels)
-    ax.legend(frameon=True)
-    ax.grid(axis="y", alpha=0.3)
+    for ax, sub_p, labels, p_name in panels:
+        if sub_p.empty:
+            continue
+        x = np.arange(len(sub_p))
+        bench_vals = sub_p["benchmark_value"].tolist()
+        fdmc_vals = sub_p["fdmc_value"].tolist()
 
-    plt.tight_layout()
+        all_vals = bench_vals + fdmc_vals
+        y_min = min(all_vals) if all_vals else 0.0
+        y_max = max(all_vals) if all_vals else 1.0
+
+        y_max_plot = max(y_max, 0.0)
+        y_min_plot = min(y_min, 0.0)
+        base_span = max(y_max_plot - y_min_plot, 1e-4)
+
+        bottom_lim = y_min_plot - 0.22 * base_span if y_min_plot < 0 else 0.0
+        top_lim = y_max_plot + 0.28 * base_span if y_max_plot > 0 else 0.0
+        ax.set_ylim(bottom_lim, top_lim)
+        total_span = top_lim - bottom_lim
+
+        rects1 = ax.bar(x - width / 2, bench_vals, width, label="Analytical Benchmark", color="#2b5c8f")
+        rects2 = ax.bar(x + width / 2, fdmc_vals, width, label=f"FDMC ($N={n_choice:_}$)", color="#e07a5f")
+
+        if not handles:
+            h, l = ax.get_legend_handles_labels()
+            handles, legend_labels = h, l
+
+        for rects, vals in [(rects1, bench_vals), (rects2, fdmc_vals)]:
+            for rect, val in zip(rects, vals):
+                txt = _format_bar_val(val)
+                y_pos = rect.get_y() + rect.get_height()
+                if val >= 0:
+                    ax.text(
+                        rect.get_x() + rect.get_width() / 2,
+                        y_pos + 0.025 * total_span,
+                        txt,
+                        ha="center",
+                        va="bottom",
+                        fontsize=8.5,
+                        fontweight="bold",
+                        color="#1f2937",
+                    )
+                else:
+                    ax.text(
+                        rect.get_x() + rect.get_width() / 2,
+                        y_pos - 0.025 * total_span,
+                        txt,
+                        ha="center",
+                        va="top",
+                        fontsize=8.5,
+                        fontweight="bold",
+                        color="#1f2937",
+                    )
+
+        if y_min < 0:
+            ax.axhline(0, color="#666666", linestyle="--", linewidth=0.8, alpha=0.7)
+
+        ax.set_xticks(x)
+        ax.set_xticklabels(labels, fontsize=12)
+        ax.set_title(p_name, fontsize=11, fontweight="bold")
+        ax.grid(axis="y", alpha=0.3)
+
+    ax_dg.set_ylabel("Greek Value (Delta / Gamma)", fontsize=10)
+    ax_v.set_ylabel("Greek Value (Vega)", fontsize=10)
+
+    fig.legend(
+        handles,
+        legend_labels,
+        loc="upper center",
+        bbox_to_anchor=(0.5, 0.94),
+        ncol=len(handles),
+        frameon=True,
+        fontsize=9,
+    )
+    fig.suptitle(f"{product}: Analytical Benchmark vs. Optimal FDMC ($N={n_choice:_}$)", fontsize=12, fontweight="bold", y=0.99)
+    plt.tight_layout(rect=[0, 0, 1, 0.91])
     return fig
 
 
@@ -527,6 +594,12 @@ def plot_comparative_convergence_vs_N(
     """Plots comparative log-log convergence vs N for FDMC, Standard Malliavin, and Fournié Malliavin."""
     from Utilities.metrics import extract_fixed_or_optimal_eps
 
+    if product not in fdmc_metrics_df["Product"].values:
+        raise ValueError(
+            f"Product '{product}' not found in fdmc_metrics_df. "
+            f"Available products: {list(fdmc_metrics_df['Product'].unique())}"
+        )
+
     fdmc_sub = fdmc_metrics_df[fdmc_metrics_df["Product"] == product]
     mal_sub = malliavin_metrics_df[malliavin_metrics_df["Product"] == product].sort_values("N")
     four_sub = (
@@ -638,9 +711,9 @@ def plot_comparative_greeks_bars(
     n_choice: int | None = None,
     fdmc_eps: float | dict[str, float] | str = FDMC_FIXED_EPS,
     fournier_metrics_df: pd.DataFrame | None = None,
-    figsize: tuple[int, int] = (13, 5.5),
+    figsize: tuple[int, int] = (14, 5.5),
 ) -> plt.Figure:
-    """Plots a 3-way or 4-way grouped bar chart: Benchmark vs FDMC vs Malliavin (vs Fournié)."""
+    """Plots a 3-way or 4-way grouped bar chart across two scales (Delta/Gamma and Vega)."""
     from Utilities.metrics import compute_comparative_summary_table
 
     if n_choice is None:
@@ -655,36 +728,108 @@ def plot_comparative_greeks_bars(
     )
     sub = comp_table[comp_table["Product"] == product]
 
-    fig, ax = plt.subplots(figsize=figsize)
-    greeks = sub["Greek"].tolist()
-    labels = [GREEK_LABELS.get(g, g) for g in greeks]
-    x = np.arange(len(sub))
+    sub_dg = sub[sub["Greek"].isin(["delta", "gamma"])].copy()
+    sub_v = sub[sub["Greek"] == "vega"].copy()
 
     has_four = "Fournié Malliavin" in sub.columns
-    width = 0.20 if has_four else 0.26
+    width = 0.19 if has_four else 0.25
 
-    bench_vals = sub["Benchmark"].tolist()
     fdmc_cols = [c for c in sub.columns if c.startswith("FDMC (")]
     fdmc_col = fdmc_cols[0] if fdmc_cols else "FDMC"
-    fdmc_vals = sub[fdmc_col].tolist()
-    mal_vals = sub["Std Malliavin"].tolist()
 
-    rects1 = ax.bar(x - (1.5 * width if has_four else width), bench_vals, width, label="Analytical Benchmark", color="#2b5c8f")
-    rects2 = ax.bar(x - (0.5 * width if has_four else 0), fdmc_vals, width, label=f"{fdmc_col} ($N={n_choice:_}$)" if "N=" not in fdmc_col else fdmc_col, color="#e07a5f")
-    rects3 = ax.bar(x + (0.5 * width if has_four else width), mal_vals, width, label=f"Std Malliavin ($N={n_choice:_}$)", color="#2a9d8f")
+    fig, (ax_dg, ax_v) = plt.subplots(1, 2, figsize=figsize, gridspec_kw={"width_ratios": [2.2, 1.2]})
 
-    if has_four:
-        four_vals = sub["Fournié Malliavin"].tolist()
-        rects4 = ax.bar(x + 1.5 * width, four_vals, width, label=f"Fournié Malliavin ($N={n_choice:_}$)", color="#3d5a80")
+    panels = [
+        (ax_dg, sub_dg, [r"$\Delta$", r"$\Gamma$"], r"$\Delta$ (Delta) & $\Gamma$ (Gamma)"),
+        (ax_v, sub_v, [r"$\mathcal{V}$"], r"$\mathcal{V}$ (Vega)"),
+    ]
 
-    ax.set_ylabel("Greek Value")
-    ax.set_title(f"{product}: Benchmark vs. Simulation Sensitivity Comparison ($N={n_choice:_}$)")
-    ax.set_xticks(x)
-    ax.set_xticklabels(labels)
-    ax.legend(frameon=True, fontsize=9)
-    ax.grid(axis="y", alpha=0.3)
+    handles, legend_labels = [], []
 
-    plt.tight_layout()
+    for ax, sub_p, labels, p_name in panels:
+        if sub_p.empty:
+            continue
+        x = np.arange(len(sub_p))
+        b_vals = sub_p["Benchmark"].tolist()
+        f_vals = sub_p[fdmc_col].tolist()
+        m_vals = sub_p["Std Malliavin"].tolist()
+        four_vals = sub_p["Fournié Malliavin"].tolist() if has_four else []
+
+        all_vals = b_vals + f_vals + m_vals + four_vals
+        y_min = min(all_vals) if all_vals else 0.0
+        y_max = max(all_vals) if all_vals else 1.0
+
+        y_max_plot = max(y_max, 0.0)
+        y_min_plot = min(y_min, 0.0)
+        base_span = max(y_max_plot - y_min_plot, 1e-4)
+
+        bottom_lim = y_min_plot - 0.22 * base_span if y_min_plot < 0 else 0.0
+        top_lim = y_max_plot + 0.28 * base_span if y_max_plot > 0 else 0.0
+        ax.set_ylim(bottom_lim, top_lim)
+        total_span = top_lim - bottom_lim
+
+        rects1 = ax.bar(x - (1.5 * width if has_four else width), b_vals, width, label="Analytical Benchmark", color="#2b5c8f")
+        rects2 = ax.bar(x - (0.5 * width if has_four else 0), f_vals, width, label=f"{fdmc_col}" if "N=" in fdmc_col else f"{fdmc_col} ($N={n_choice:_}$)", color="#e07a5f")
+        rects3 = ax.bar(x + (0.5 * width if has_four else width), m_vals, width, label=f"Std Malliavin ($N={n_choice:_}$)", color="#2a9d8f")
+
+        bar_groups = [(rects1, b_vals), (rects2, f_vals), (rects3, m_vals)]
+        if has_four:
+            rects4 = ax.bar(x + 1.5 * width, four_vals, width, label=f"Fournié Malliavin ($N={n_choice:_}$)", color="#3d5a80")
+            bar_groups.append((rects4, four_vals))
+
+        if not handles:
+            h, l = ax.get_legend_handles_labels()
+            handles, legend_labels = h, l
+
+        for rects, vals in bar_groups:
+            for rect, val in zip(rects, vals):
+                txt = _format_bar_val(val)
+                y_pos = rect.get_y() + rect.get_height()
+                if val >= 0:
+                    ax.text(
+                        rect.get_x() + rect.get_width() / 2,
+                        y_pos + 0.025 * total_span,
+                        txt,
+                        ha="center",
+                        va="bottom",
+                        fontsize=8.0,
+                        fontweight="bold",
+                        color="#1f2937",
+                    )
+                else:
+                    ax.text(
+                        rect.get_x() + rect.get_width() / 2,
+                        y_pos - 0.025 * total_span,
+                        txt,
+                        ha="center",
+                        va="top",
+                        fontsize=8.0,
+                        fontweight="bold",
+                        color="#1f2937",
+                    )
+
+        if y_min < 0:
+            ax.axhline(0, color="#666666", linestyle="--", linewidth=0.8, alpha=0.7)
+
+        ax.set_xticks(x)
+        ax.set_xticklabels(labels, fontsize=12)
+        ax.set_title(p_name, fontsize=11, fontweight="bold")
+        ax.grid(axis="y", alpha=0.3)
+
+    ax_dg.set_ylabel("Greek Value (Delta / Gamma)", fontsize=10)
+    ax_v.set_ylabel("Greek Value (Vega)", fontsize=10)
+
+    fig.legend(
+        handles,
+        legend_labels,
+        loc="upper center",
+        bbox_to_anchor=(0.5, 0.94),
+        ncol=len(handles),
+        frameon=True,
+        fontsize=9,
+    )
+    fig.suptitle(f"{product}: Benchmark vs. Simulation Sensitivity Comparison ($N={n_choice:_}$)", fontsize=12, fontweight="bold", y=0.99)
+    plt.tight_layout(rect=[0, 0, 1, 0.91])
     return fig
 
 
@@ -1007,3 +1152,76 @@ def plot_gap_function_heatmap(
     return fig
 
 
+
+
+# Colors match the single-seed comparison plots; markers/line styles carry identity too.
+REPLICATION_STYLES = {
+    "FDMC": {"color": "#e76f51", "marker": "o", "linestyle": "-"},
+    "Malliavin": {"color": "#2a9d8f", "marker": "s", "linestyle": "-"},
+    "Malliavin Fournié": {"color": "#3d5a80", "marker": "D", "linestyle": "-"},
+    "Malliavin Fournié (Γ shortcut)": {"color": "#3d5a80", "marker": "D", "linestyle": ":", "mfc": "none"},
+    "Malliavin Fournié (ψ_K+ψ_H)": {"color": "#3d5a80", "marker": "D", "linestyle": ":", "mfc": "none"},
+}
+
+
+def plot_replication_error_vs_N(
+    summary_df: pd.DataFrame,
+    product: str,
+    greeks: list[str] = ["delta", "gamma", "vega"],
+    fdmc_eps: float = FDMC_FIXED_EPS,
+    extrapolate_to: float = 1e8,
+    figsize: tuple[int, int] = (18, 5.5),
+) -> plt.Figure:
+    """Error vs N from independent replications, one panel per Greek.
+
+    Solid line: RMSE over the R runs. Band: 10th-90th percentile of |estimate - benchmark|.
+    Dashed line: extrapolation sqrt(bias^2 + Var/N) beyond the largest simulated N, using the
+    per-path variance; the bias term is only kept when it is significant (|bias| > 3 bias_se).
+    """
+    sub = summary_df[summary_df["Product"] == product]
+    if sub.empty:
+        raise ValueError(f"Product '{product}' not found. Available: {list(summary_df['Product'].unique())}")
+    is_fdmc = sub["Method"] == "FDMC"
+    sub = sub[~is_fdmc | np.isclose(sub["eps"].fillna(-1.0), fdmc_eps)]
+    R = int(sub["R"].max())
+
+    fig, axes = plt.subplots(1, len(greeks), figsize=figsize, sharey=False)
+    if len(greeks) == 1:
+        axes = [axes]
+
+    for ax, greek in zip(axes, greeks):
+        g = sub[sub["Greek"] == greek]
+        for method, style in REPLICATION_STYLES.items():
+            m = g[g["Method"] == method].sort_values("N")
+            if m.empty:
+                continue
+            label = f"FDMC (ε={fdmc_eps:g})" if method == "FDMC" else method
+            ax.fill_between(m["N"], m["abs_err_q10"], m["abs_err_q90"], color=style["color"], alpha=0.15, linewidth=0)
+            ax.plot(
+                m["N"], m["rmse"], marker=style["marker"], linestyle=style["linestyle"], color=style["color"],
+                markerfacecolor=style.get("mfc", style["color"]), label=label, zorder=4,
+            )
+            last = m.iloc[-1]
+            if extrapolate_to and extrapolate_to > last["N"]:
+                n_ext = np.geomspace(last["N"], extrapolate_to, 30)
+                bias = last["bias"] if abs(last["bias"]) > 3 * last["bias_se"] else 0.0
+                ax.plot(
+                    n_ext, np.sqrt(bias**2 + last["var_per_path"] / n_ext),
+                    linestyle="--", linewidth=1.4, color=style["color"], alpha=0.8, zorder=3,
+                )
+
+        ax.set_xscale("log")
+        ax.set_yscale("log")
+        ax.set_xlabel("Sample Size $N$")
+        ax.set_ylabel("Error vs. analytical")
+        ax.set_title(f"{product}\n{GREEK_LABELS.get(greek, greek)}")
+        ax.grid(True, which="both", alpha=0.3)
+        ax.legend(frameon=True, fontsize=8)
+
+    fig.suptitle(
+        f"RMSE over R = {R} independent runs (band: 10th–90th percentile of |error|; dashed: "
+        r"$\sqrt{\mathrm{bias}^2 + \mathrm{Var}/N}$ extrapolation)",
+        fontsize=11,
+    )
+    plt.tight_layout()
+    return fig

@@ -87,7 +87,7 @@ import Utilities as utils
 from products import (
     example_european_call_ATM,
     example_european_digital_ATM,
-    example_european_barrier_up_and_out_95,
+    example_european_call_terminal_knockout,
 )
 
 pd.set_option("display.precision", 6)
@@ -222,7 +222,7 @@ The corridor width is $H - K = 5.25$. If the smoothing half-width $\\delta$ exce
 Below, we demonstrate why $\\delta \\in [1.0, 3.0]$ is required for tight corridor options:"""))
 
     cells.append(nbf.v4.new_code_cell("""bench_bar = {"delta": 0.001509, "gamma": -0.000630, "vega": -1.259414}
-params_bar = example_european_barrier_up_and_out_95
+params_bar = example_european_call_terminal_knockout
 
 print("Evaluating Barrier Up-and-Out Call grid across gap sizes...")
 grid_bar = utils.compute_smoothing_and_gap_grid(
@@ -232,7 +232,7 @@ grid_bar = utils.compute_smoothing_and_gap_grid(
     N=100000, seed=42, num_reps_for_variance=15, variance_sample_size=10000
 )
 
-fig_bar_var = utils.plot_variance_convexity_curve(grid_bar, product="Barrier European Up and Out 95", greeks=["gamma", "vega"])
+fig_bar_var = utils.plot_variance_convexity_curve(grid_bar, product="Call with terminal knock-out", greeks=["gamma", "vega"])
 plt.show()"""))
 
     # Cell 10: Calibration of the Universal Gap Rule of Thumb

@@ -23,18 +23,34 @@ the singularity (strike K) with half-width delta:
 
 Exact Localized Formulas:
 -------------------------
+Split Phi = Phi * psi + Phi * (1 - psi). The first part uses the Malliavin weight,
+the second the pathwise derivative (S_T is linear in S0, and dS_T/dsigma = S_T (W_T - sigma T)):
+
 1. Localized Delta:
-   Delta_loc = e^{-rT} * E[ Phi(S_T) * (psi * pi^Delta - psi' * S_T / S0)
-                          + Phi'(S_T) * (1 - psi) * S_T / S0 ]
+   Delta_loc = e^{-rT} * E[ Phi psi W_Delta + (Phi' (1 - psi) - Phi psi') * S_T / S0 ]
 
 2. Localized Vega:
-   Vega_loc  = e^{-rT} * E[ Phi(S_T) * (psi * pi^Vega - psi' * S_T * (W_T - sigma*T))
-                          + Phi'(S_T) * (1 - psi) * S_T * (W_T - sigma*T) ]
+   Vega_loc  = e^{-rT} * E[ Phi psi W_Vega + (Phi' (1 - psi) - Phi psi') * S_T (W_T - sigma T) ]
 
-3. Localized Gamma:
-   Gamma_loc = e^{-rT} * E[ Phi'(S_T) * (psi * pi^Delta - psi' * S_T / S0)
-                          + Phi''(S_T) * (1 - psi) * (S_T / S0)^2 ]
-   (For Call options, Phi''(S_T) = delta(S_T - K), so the outer term vanishes).
+3. Localized Gamma (general formula, any payoff):
+   Gamma_loc = e^{-rT} * E[ Phi psi W_Gamma
+                            + (Phi'' (1 - psi) - 2 Phi' psi' - Phi psi'') * (S_T / S0)^2 ]
+
+Phi' and Phi'' are the classical (almost-everywhere) derivatives. The Dirac masses of the
+distributional derivatives sit at the singularities, where psi = 1 and psi' = 0, so they drop out.
+
+Products:
+   - Call:       Phi' = 1{S_T > K},           Phi'' = 0, psi centered at K.
+   - Digital:    Phi' = 0,                    Phi'' = 0, psi centered at K.
+   - Call with terminal knock-out, Phi = (S_T - K)^+ 1{S_T <= H}:
+                 Phi' = 1{K < S_T <= H},      Phi'' = 0, one cutoff covering both K and H:
+                 psi = 1 - (1 - psi_K)(1 - psi_H), which equals psi_K + psi_H when the two
+                 bumps do not overlap (compact cutoffs with delta <= (H - K) / 2).
+                 The plain sum psi_K + psi_H is available as cutoff_combination="sum" to show
+                 its bias with non-compact cutoffs (psi(K) = 1 + psi_H(K) != 1 for the gaussian).
+
+The old call-only Gamma shortcut, Gamma_call = (K / S0) * (localized digital Delta), is kept
+as ``gamma_formula="shortcut"`` for comparison. It relies on the call's homogeneity in (S0, K).
 
 Supported Cutoff Smoothing Functions:
 -------------------------------------
@@ -49,42 +65,12 @@ from __future__ import annotations
 
 import numpy as np
 
-
-def generate_paths(T: float, N: int, seed: int = 42) -> np.ndarray:
-    """Generates standard Brownian motion increments W_T ~ N(0, T) for N simulations."""
-    np.random.seed(seed)
-    return np.random.normal(0.0, np.sqrt(T), N)
-
-
-def simulate_terminal_spot(
-    S0: float,
-    T: float,
-    r: float,
-    q: float,
-    sigma: float,
-    W_T: np.ndarray,
-) -> np.ndarray:
-    """Simulates terminal asset prices S_T under the Black-Scholes model."""
-    drift = (r - q - 0.5 * sigma**2) * T
-    return S0 * np.exp(drift + sigma * W_T)
-
-
-def compute_malliavin_weights(
-    S0: float,
-    T: float,
-    sigma: float,
-    W_T: np.ndarray,
-) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-    """Computes exact standard Malliavin weights for Delta, Gamma, and Vega."""
-    vol_t = sigma * T
-    s0_vol_t = S0 * vol_t
-
-    pi_delta = W_T / s0_vol_t
-    numerator = W_T**2 - vol_t * W_T - T
-    pi_gamma = numerator / (s0_vol_t**2)
-    pi_vega = numerator / vol_t
-
-    return pi_delta, pi_gamma, pi_vega
+from Methods.Malliavin.malliavin_european_standard import (
+    compute_malliavin_weights,
+    generate_paths,
+    simulate_terminal_spot,
+)
+from Methods.sampling import GREEKS, estimate_from_samples
 
 
 def get_cutoff(
@@ -156,39 +142,248 @@ def get_cutoff(
     return psi, psi_prime
 
 
-def compute_fournier_delta(params: dict[str, float], is_barrier: bool = False) -> float:
+def compute_fournier_delta(
+    params: dict[str, float],
+    is_barrier: bool = False,
+    decoupled: bool = False,
+    greek: str | None = None,
+) -> float | dict[str, float]:
     """Computes the calibrated optimal Fournié delta gap bandwidth.
 
-    Rule of thumb:
+    Rule of thumb (Unified base):
         delta^* = 0.40 * S_0 * sigma * sqrt(T)
+    Option A (Decoupled Per-Greek Bandwidths):
+        - Delta: delta^*_delta = 0.20 * S_0 * sigma * sqrt(T)
+        - Gamma: delta^*_gamma = 0.50 * S_0 * sigma * sqrt(T)
+        - Vega:  delta^*_vega  = 0.20 * S_0 * sigma * sqrt(T)
     For barrier options with corridor width H - K:
-        delta^* = min(0.40 * S_0 * sigma * sqrt(T), (H - K) / 2.0)
-    enforcing the corridor non-overlap constraint delta <= (H - K) / 2.
+        Enforces corridor non-overlap constraint delta <= (H - K) / 2.0.
 
     Args:
         params: Dictionary containing S0, sigma, T, and optionally H, K.
         is_barrier: Whether the contract is a barrier option.
+        decoupled: If True, returns a dictionary with decoupled per-Greek bandwidths.
+        greek: Optional specific Greek ('delta', 'gamma', 'vega'). If specified, returns float.
 
     Returns:
-        float: Calibrated smoothing half-width delta.
+        float | dict[str, float]: Calibrated smoothing half-width delta(s).
     """
     S0 = float(params["S0"])
     sigma = float(params["sigma"])
     T = float(params["T"])
-    base_delta = 0.40 * S0 * sigma * np.sqrt(T)
+    diffusion_scale = S0 * sigma * np.sqrt(T)
 
+    if greek is not None:
+        g = greek.lower()
+        multiplier = 0.50 if g == "gamma" else 0.20
+        delta_val = multiplier * diffusion_scale
+        if is_barrier:
+            H = float(params.get("H", 0.0))
+            K = float(params.get("K", 0.0))
+            if H > K:
+                delta_val = min(delta_val, (H - K) / 2.0)
+        return float(delta_val)
+
+    if decoupled:
+        deltas = {
+            "delta": 0.20 * diffusion_scale,
+            "gamma": 0.50 * diffusion_scale,
+            "vega": 0.20 * diffusion_scale,
+        }
+        if is_barrier:
+            H = float(params.get("H", 0.0))
+            K = float(params.get("K", 0.0))
+            if H > K:
+                corridor_cap = (H - K) / 2.0
+                deltas = {k: min(v, corridor_cap) for k, v in deltas.items()}
+        return deltas
+
+    base_delta = 0.40 * diffusion_scale
     if is_barrier:
         H = float(params.get("H", 0.0))
         K = float(params.get("K", 0.0))
         if H > K:
             corridor_cap = (H - K) / 2.0
             return float(min(base_delta, corridor_cap))
-
     return float(base_delta)
 
 
+def _resolve_deltas(
+    delta_strike: float | dict[str, float] | None,
+    params: dict[str, float],
+    is_barrier: bool = False,
+) -> tuple[float, float, float]:
+    """Resolves decoupled (delta_d, delta_g, delta_v) from user input or default calibration."""
+    if delta_strike is None:
+        # Option A decoupled by default
+        d_dict = compute_fournier_delta(params, is_barrier=is_barrier, decoupled=True)
+        return float(d_dict["delta"]), float(d_dict["gamma"]), float(d_dict["vega"])
+    elif isinstance(delta_strike, dict):
+        d_dict = compute_fournier_delta(params, is_barrier=is_barrier, decoupled=True)
+        return (
+            float(delta_strike.get("delta", d_dict["delta"])),
+            float(delta_strike.get("gamma", d_dict["gamma"])),
+            float(delta_strike.get("vega", d_dict["vega"])),
+        )
+    else:
+        d = float(delta_strike)
+        return d, d, d
+
+
+
 # ==============================================================================
-# 1. Vanilla European Call: Fournié Localized Greeks
+# 1. Generic localized estimator (general Fournié formula)
+# ==============================================================================
+
+def _combined_cutoff(
+    S_T: np.ndarray,
+    centers: tuple[float, ...],
+    delta: float,
+    cutoff_type: str,
+    combination: str = "union",
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """One cutoff covering several singularities, with its first two derivatives.
+
+    'union': psi = 1 - prod_c (1 - psi_c). Equals 1 with zero slope at every center, which is
+             what the localized formulas need, so the estimator is unbiased for any cutoff type.
+    'sum':   psi = sum_c psi_c. Same as 'union' when the bumps do not overlap (compact cutoffs
+             with delta <= half the gap). With non-compact cutoffs (gaussian, cauchy) psi != 1 at
+             the centers, the Dirac terms no longer vanish and the estimator is biased.
+    With one center both reduce to the cutoff around it.
+    """
+    if combination == "sum":
+        parts = [get_cutoff(S_T, c, delta=delta, cutoff_type=cutoff_type, return_second_deriv=True) for c in centers]
+        return tuple(sum(p[i] for p in parts) for i in range(3))
+    if combination != "union":
+        raise ValueError(f"Unknown cutoff combination: '{combination}'. Supported: 'union', 'sum'")
+
+    u, u1, u2 = None, None, None  # u = prod (1 - psi_c)
+    for c in centers:
+        psi_c, psi1_c, psi2_c = get_cutoff(S_T, c, delta=delta, cutoff_type=cutoff_type, return_second_deriv=True)
+        v, v1, v2 = 1.0 - psi_c, -psi1_c, -psi2_c
+        if u is None:
+            u, u1, u2 = v, v1, v2
+        else:
+            u, u1, u2 = u * v, u1 * v + u * v1, u2 * v + 2.0 * u1 * v1 + u * v2
+    return 1.0 - u, -u1, -u2
+
+
+def _fournier_samples(
+    params: dict[str, float],
+    W_T: np.ndarray,
+    payoff_fn,
+    centers: tuple[float, ...],
+    deltas: tuple[float, float, float],
+    cutoff_type: str,
+    gamma_formula: str = "general",
+    cutoff_combination: str = "union",
+) -> dict[str, np.ndarray]:
+    """Per-path discounted samples of the localized Delta, Gamma and Vega.
+
+    ``payoff_fn(S_T)`` returns (Phi, Phi'), the payoff and its classical derivative
+    (Phi'' = 0 a.e. for every product here). ``deltas`` are the (Delta, Gamma, Vega)
+    bandwidths; cutoffs are evaluated once per distinct bandwidth.
+    """
+    S0, T, r, q, sigma = params["S0"], params["T"], params["r"], params["q"], params["sigma"]
+    S_T = simulate_terminal_spot(S0, T, r, q, sigma, W_T)
+    discount = np.exp(-r * T)
+    phi, phi1 = payoff_fn(S_T)
+    w_delta, w_gamma, w_vega = compute_malliavin_weights(S0, T, sigma, W_T)
+    x = S_T / S0                      # dS_T / dS0
+    pw_vega = S_T * (W_T - sigma * T)  # dS_T / dsigma
+
+    cache: dict[float, tuple[np.ndarray, np.ndarray, np.ndarray]] = {}
+    psi = {}
+    for greek, d in zip(GREEKS, deltas):
+        if d not in cache:
+            cache[d] = _combined_cutoff(S_T, centers, d, cutoff_type, cutoff_combination)
+        psi[greek] = cache[d]
+
+    psi_d, psi1_d, _ = psi["delta"]
+    delta = phi * psi_d * w_delta + (phi1 * (1.0 - psi_d) - phi * psi1_d) * x
+
+    psi_v, psi1_v, _ = psi["vega"]
+    vega = phi * psi_v * w_vega + (phi1 * (1.0 - psi_v) - phi * psi1_v) * pw_vega
+
+    psi_g, psi1_g, psi2_g = psi["gamma"]
+    if gamma_formula == "general":
+        gamma = phi * psi_g * w_gamma - (2.0 * phi1 * psi1_g + phi * psi2_g) * x**2
+    elif gamma_formula == "shortcut":
+        # Call only: Gamma = (K / S0) * localized digital Delta (homogeneity of the call in (S0, K)).
+        gamma = (params["K"] / S0) * phi1 * (psi_g * w_delta - psi1_g * x)
+    else:
+        raise ValueError(f"Unknown gamma_formula: '{gamma_formula}'. Supported: 'general', 'shortcut'")
+
+    return {"delta": discount * delta, "gamma": discount * gamma, "vega": discount * vega}
+
+
+def _knockout_deltas(
+    delta_strike: float | dict[str, float] | None,
+    params: dict[str, float],
+) -> tuple[float, float, float]:
+    """Bandwidths for the knock-out, capped at (H - K) / 2 so the two bumps do not overlap."""
+    d_delta, d_gamma, d_vega = _resolve_deltas(delta_strike, params, is_barrier=True)
+    corridor = params["H"] - params["K"]
+    if corridor > 0:
+        cap = corridor / 2.0
+        d_delta, d_gamma, d_vega = min(d_delta, cap), min(d_gamma, cap), min(d_vega, cap)
+    return d_delta, d_gamma, d_vega
+
+
+# ==============================================================================
+# 2. Per-path samples for each product
+# ==============================================================================
+
+def malliavin_fournier_samples_european_call(
+    params: dict[str, float],
+    W_T: np.ndarray,
+    cutoff_type: str = "gaussian",
+    delta_strike: float | dict[str, float] | None = None,
+    gamma_formula: str = "general",
+) -> dict[str, np.ndarray]:
+    K = params["K"]
+    return _fournier_samples(
+        params, W_T,
+        lambda S_T: (np.maximum(S_T - K, 0.0), (S_T > K).astype(float)),
+        (K,), _resolve_deltas(delta_strike, params), cutoff_type, gamma_formula,
+    )
+
+
+def malliavin_fournier_samples_european_digital_call(
+    params: dict[str, float],
+    W_T: np.ndarray,
+    cutoff_type: str = "gaussian",
+    delta_strike: float | dict[str, float] | None = None,
+) -> dict[str, np.ndarray]:
+    K = params["K"]
+    return _fournier_samples(
+        params, W_T,
+        lambda S_T: ((S_T > K).astype(float), np.zeros_like(S_T)),
+        (K,), _resolve_deltas(delta_strike, params), cutoff_type,
+    )
+
+
+def malliavin_fournier_samples_european_call_terminal_knockout(
+    params: dict[str, float],
+    W_T: np.ndarray,
+    cutoff_type: str = "gaussian",
+    delta_strike: float | dict[str, float] | None = None,
+    cutoff_combination: str = "union",
+) -> dict[str, np.ndarray]:
+    K, H = params["K"], params["H"]
+
+    def payoff(S_T: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+        alive = (S_T > K) & (S_T <= H)
+        return np.where(alive, S_T - K, 0.0), alive.astype(float)
+
+    return _fournier_samples(
+        params, W_T, payoff, (K, H), _knockout_deltas(delta_strike, params), cutoff_type,
+        cutoff_combination=cutoff_combination,
+    )
+
+
+# ==============================================================================
+# 3. Public estimators (mean, and optionally per-path variance and SE)
 # ==============================================================================
 
 def malliavin_fournier_greeks_european_call(
@@ -197,67 +392,33 @@ def malliavin_fournier_greeks_european_call(
     seed: int = 42,
     paths: np.ndarray | None = None,
     cutoff_type: str = "gaussian",
-    delta_strike: float | None = None,
+    delta_strike: float | dict[str, float] | None = None,
+    return_stats: bool = False,
+    gamma_formula: str = "general",
 ) -> dict[str, float]:
-    """Computes Delta, Gamma, and Vega of a European Call using Fournié et al. localization.
-
-    Eliminates the high variance of standard Malliavin weights on smooth payoffs by
-    applying Malliavin IBP only in the localized band [K - delta, K + delta], and the
-    pathwise derivative (IPA) outside.
+    """Delta, Gamma and Vega of a European call with Fournié et al. localization around K.
 
     Args:
         params: Dictionary containing S0, K, T, r, q, sigma.
         N: Number of Monte Carlo simulations.
-        seed: Random seed for reproducibility.
-        paths: Optional pre-generated Brownian motion increments W_T.
+        seed: Seed for ``np.random.default_rng``.
+        paths: Optional pre-generated Brownian motion values W_T.
         cutoff_type: Smoothing function ('gaussian', 'cubic', 'cosine', 'quintic', 'cauchy').
-        delta_strike: Half-width of smoothing window around the strike K (defaults to 0.40 * S0 * sigma * sqrt(T)).
+        delta_strike: Half-width(s) around strike K:
+            - float: Shared bandwidth across all Greeks.
+            - dict: Decoupled per-Greek bandwidths {'delta': ..., 'gamma': ..., 'vega': ...}.
+            - None: Defaults to decoupled calibration (0.20, 0.50, 0.20) * S0 * sigma * sqrt(T).
+        return_stats: If True, also return '{greek}_var' (per-path variance) and '{greek}_se'.
+        gamma_formula: 'general' (default) or 'shortcut' (Gamma = (K/S0) * localized digital Delta).
 
     Returns:
         dict[str, float]: {'delta': ..., 'gamma': ..., 'vega': ...}
     """
-    S0, K, T, r, q, sigma = params["S0"], params["K"], params["T"], params["r"], params["q"], params["sigma"]
-    if delta_strike is None:
-        delta_strike = compute_fournier_delta(params, is_barrier=False)
-    if paths is None:
-        paths = generate_paths(T, N, seed)
+    return estimate_from_samples(
+        lambda W_T: malliavin_fournier_samples_european_call(params, W_T, cutoff_type, delta_strike, gamma_formula),
+        params["T"], N, seed, paths=paths, return_stats=return_stats,
+    )
 
-    S_T = simulate_terminal_spot(S0, T, r, q, sigma, paths)
-    payoff = np.maximum(S_T - K, 0.0)
-    payoff_prime = (S_T > K).astype(float)
-    discount = np.exp(-r * T)
-
-    pi_delta, _, pi_vega = compute_malliavin_weights(S0, T, sigma, paths)
-    psi, psi_prime = get_cutoff(S_T, K, delta=delta_strike, cutoff_type=cutoff_type)
-
-    # 1. Localized Delta:
-    # Inner: Phi * (psi * pi_delta - psi' * S_T / S0)
-    # Outer: Phi' * (1 - psi) * S_T / S0
-    delta_inner = payoff * (psi * pi_delta - psi_prime * (S_T / S0))
-    delta_outer = payoff_prime * (1.0 - psi) * (S_T / S0)
-    delta_samples = delta_inner + delta_outer
-
-    # 2. Localized Vega:
-    # Pathwise vega weight: S_T * (W_T - sigma * T)
-    pw_vega = S_T * (paths - sigma * T)
-    vega_inner = payoff * (psi * pi_vega - psi_prime * pw_vega)
-    vega_outer = payoff_prime * (1.0 - psi) * pw_vega
-    vega_samples = vega_inner + vega_outer
-
-    # 3. Localized Gamma:
-    # Scale by (K / S0) because Gamma_call = (K / S0) * Delta_digital
-    gamma_samples = (K / S0) * payoff_prime * (psi * pi_delta - psi_prime * (S_T / S0))
-
-    return {
-        "delta": float(discount * np.mean(delta_samples)),
-        "gamma": float(discount * np.mean(gamma_samples)),
-        "vega": float(discount * np.mean(vega_samples)),
-    }
-
-
-# ==============================================================================
-# 2. Digital European Call: Fournié Localized Greeks
-# ==============================================================================
 
 def malliavin_fournier_greeks_european_digital_call(
     params: dict[str, float],
@@ -265,56 +426,18 @@ def malliavin_fournier_greeks_european_digital_call(
     seed: int = 42,
     paths: np.ndarray | None = None,
     cutoff_type: str = "gaussian",
-    delta_strike: float | None = None,
+    delta_strike: float | dict[str, float] | None = None,
+    return_stats: bool = False,
 ) -> dict[str, float]:
-    """Computes Delta, Gamma, and Vega of a Digital Call using Fournié et al. localization.
+    """Delta, Gamma and Vega of a digital call 1{S_T > K} with Fournié localization around K.
 
-    Payoff is 1_{S_T > K}. Localizes Delta and Vega via boundary derivative -psi',
-    and localizes Gamma via the second derivative -psi'' of the C^2 cutoff function.
-
-    Args:
-        params: Dictionary containing S0, K, T, r, q, sigma.
-        N: Number of simulations.
-        seed: Random seed.
-        paths: Optional pre-generated paths.
-        cutoff_type: Smoothing function.
-        delta_strike: Smoothing width around K (defaults to 0.40 * S0 * sigma * sqrt(T)).
-
-    Returns:
-        dict[str, float]: {'delta': ..., 'gamma': ..., 'vega': ...}
+    Same arguments as ``malliavin_fournier_greeks_european_call`` (without ``gamma_formula``).
     """
-    S0, K, T, r, q, sigma = params["S0"], params["K"], params["T"], params["r"], params["q"], params["sigma"]
-    if delta_strike is None:
-        delta_strike = compute_fournier_delta(params, is_barrier=False)
-    if paths is None:
-        paths = generate_paths(T, N, seed)
-
-    S_T = simulate_terminal_spot(S0, T, r, q, sigma, paths)
-    payoff = (S_T > K).astype(float)
-    discount = np.exp(-r * T)
-
-    pi_delta, pi_gamma, pi_vega = compute_malliavin_weights(S0, T, sigma, paths)
-    psi, psi_prime, psi_double_prime = get_cutoff(
-        S_T, K, delta=delta_strike, cutoff_type=cutoff_type, return_second_deriv=True
+    return estimate_from_samples(
+        lambda W_T: malliavin_fournier_samples_european_digital_call(params, W_T, cutoff_type, delta_strike),
+        params["T"], N, seed, paths=paths, return_stats=return_stats,
     )
 
-    # Localized sensitivities for digital call
-    pw_vega = S_T * (paths - sigma * T)
-    delta_samples = payoff * (psi * pi_delta - psi_prime * (S_T / S0))
-    vega_samples = payoff * (psi * pi_vega - psi_prime * pw_vega)
-    # Localized Gamma for indicator step jump using C^2 cutoff second derivative:
-    gamma_samples = payoff * (psi * pi_gamma - psi_double_prime * (S_T / S0)**2)
-
-    return {
-        "delta": float(discount * np.mean(delta_samples)),
-        "gamma": float(discount * np.mean(gamma_samples)),
-        "vega": float(discount * np.mean(vega_samples)),
-    }
-
-
-# ==============================================================================
-# 3. Terminal Barrier Up-and-Out Call: Fournié Localized Greeks
-# ==============================================================================
 
 def malliavin_fournier_greeks_european_barrier_up_and_out_call(
     params: dict[str, float],
@@ -322,81 +445,29 @@ def malliavin_fournier_greeks_european_barrier_up_and_out_call(
     seed: int = 42,
     paths: np.ndarray | None = None,
     cutoff_type: str = "gaussian",
-    delta_strike: float | None = None,
+    delta_strike: float | dict[str, float] | None = None,
+    return_stats: bool = False,
+    cutoff_combination: str = "union",
 ) -> dict[str, float]:
-    """Computes Greeks of a Terminal Barrier Up-and-Out Call using Fournié localization.
+    """Delta, Gamma and Vega of a call with terminal knock-out, (S_T - K)^+ 1{S_T <= H}.
 
-    Payoff is max(S_T - K, 0) * 1_{S_T <= H}.
-    For tight corridors (H - K <= 2*delta), the smoothing window covers the corridor,
-    evaluating directly on [K, H] without destructive infinite tail decomposition.
-    For wider corridors, localizes near boundaries and uses pathwise derivative inside.
-
-    Args:
-        params: Dictionary containing S0, K, T, r, q, sigma, and H.
-        N: Number of simulations.
-        seed: Random seed.
-        paths: Optional pre-generated paths.
-        cutoff_type: Smoothing function.
-        delta_strike: Smoothing width around boundaries (defaults to min(0.40*S0*sigma*sqrt(T), (H-K)/2)).
-
-    Returns:
-        dict[str, float]: {'delta': ..., 'gamma': ..., 'vega': ...}
+    Localizes directly with one cutoff covering K and H (no call - call - digital split).
+    Bandwidths are capped at (H - K) / 2. Same arguments as the call version, with ``params``
+    also containing H, plus ``cutoff_combination``: 'union' (default, psi = 1 - (1 - psi_K)(1 - psi_H),
+    unbiased) or 'sum' (psi = psi_K + psi_H, biased for non-compact cutoffs such as the gaussian).
     """
-    S0, K, T, r, q, sigma = params["S0"], params["K"], params["T"], params["r"], params["q"], params["sigma"]
-    H = params.get("H", 105.25)
-    if delta_strike is None:
-        delta_strike = compute_fournier_delta(params, is_barrier=True)
-    if paths is None:
-        paths = generate_paths(T, N, seed)
-
-    S_T = simulate_terminal_spot(S0, T, r, q, sigma, paths)
-    discount = np.exp(-r * T)
-
-    # Corridor constraint: enforce delta <= (H - K) / 2.0 to prevent destructive window overlap
-    corridor = H - K
-    effective_delta = min(delta_strike, corridor / 2.0) if corridor > 0 else delta_strike
-
-    pi_delta, pi_gamma, pi_vega = compute_malliavin_weights(S0, T, sigma, paths)
-    pw_vega = S_T * (paths - sigma * T)
-
-    # 1. Lower Strike K: Fournié localized call
-    psi_k, psi_k_prime = get_cutoff(S_T, K, delta=effective_delta, cutoff_type=cutoff_type)
-    payoff_k = np.maximum(S_T - K, 0.0)
-    prime_k = (S_T > K).astype(float)
-    d_k = payoff_k * (psi_k * pi_delta - psi_k_prime * (S_T / S0)) + prime_k * (1.0 - psi_k) * (S_T / S0)
-    v_k = payoff_k * (psi_k * pi_vega - psi_k_prime * pw_vega) + prime_k * (1.0 - psi_k) * pw_vega
-    g_k = (K / S0) * prime_k * (psi_k * pi_delta - psi_k_prime * (S_T / S0))
-
-    # 2. Upper Barrier H: Fournié localized call
-    psi_h, psi_h_prime, psi_h_double_prime = get_cutoff(
-        S_T, H, delta=effective_delta, cutoff_type=cutoff_type, return_second_deriv=True
+    return estimate_from_samples(
+        lambda W_T: malliavin_fournier_samples_european_call_terminal_knockout(
+            params, W_T, cutoff_type, delta_strike, cutoff_combination
+        ),
+        params["T"], N, seed, paths=paths, return_stats=return_stats,
     )
-    payoff_h = np.maximum(S_T - H, 0.0)
-    prime_h = (S_T > H).astype(float)
-    d_h = payoff_h * (psi_h * pi_delta - psi_h_prime * (S_T / S0)) + prime_h * (1.0 - psi_h) * (S_T / S0)
-    v_h = payoff_h * (psi_h * pi_vega - psi_h_prime * pw_vega) + prime_h * (1.0 - psi_h) * pw_vega
-    g_h = (H / S0) * prime_h * (psi_h * pi_delta - psi_h_prime * (S_T / S0))
-
-    # 3. Boundary Step Jump at H: Fournié localized digital call
-    d_dig = prime_h * (psi_h * pi_delta - psi_h_prime * (S_T / S0))
-    v_dig = prime_h * (psi_h * pi_vega - psi_h_prime * pw_vega)
-    g_dig = prime_h * (psi_h * pi_gamma - psi_h_double_prime * (S_T / S0)**2)
-
-    delta_samples = d_k - d_h - (H - K) * d_dig
-    gamma_samples = g_k - g_h - (H - K) * g_dig
-    vega_samples = v_k - v_h - (H - K) * v_dig
-
-    return {
-        "delta": float(discount * np.mean(delta_samples)),
-        "gamma": float(discount * np.mean(gamma_samples)),
-        "vega": float(discount * np.mean(vega_samples)),
-    }
-
 
 
 # ==============================================================================
 # 4. Multi-Product Suite & Variance Diagnostic Tools
 # ==============================================================================
+
 
 def malliavin_fournier_all_greeks_european(
     params: dict[str, float],
@@ -404,10 +475,10 @@ def malliavin_fournier_all_greeks_european(
     seed: int = 42,
     paths: np.ndarray | None = None,
     cutoff_type: str = "gaussian",
-    delta_strike: float | None = None,
-    barrier_delta: float | None = None,
+    delta_strike: float | dict[str, float] | None = None,
+    barrier_delta: float | dict[str, float] | None = None,
 ) -> dict[str, dict[str, float]]:
-    """Calculates all Greeks for Call, Digital Call, and Barrier Up-and-Out options jointly."""
+    """Calculates all Greeks for the call, digital call and call with terminal knock-out jointly."""
     if paths is None:
         paths = generate_paths(params["T"], N, seed)
 
@@ -423,10 +494,11 @@ def malliavin_fournier_all_greeks_european(
         "digital": malliavin_fournier_greeks_european_digital_call(
             params, N=N, seed=seed, paths=paths, cutoff_type=cutoff_type, delta_strike=delta_strike
         ),
-        "barrier": malliavin_fournier_greeks_european_barrier_up_and_out_call(
+        "call_terminal_knockout": malliavin_fournier_greeks_european_barrier_up_and_out_call(
             params, N=N, seed=seed, paths=paths, cutoff_type=cutoff_type, delta_strike=barrier_delta
         ),
     }
+
 
 
 def compare_cutoff_functions(

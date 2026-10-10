@@ -18,6 +18,12 @@ from Utilities.metrics import (
     find_optimal_delta,
     compute_empirical_convergence_rate,
     is_catastrophic_eps_series,
+    generate_summary_csv,
+    summarize_replications,
+    compute_efficiency_table,
+    required_paths,
+    estimator_label,
+    expected_error_under_budget,
 )
 from Utilities.plotting import (
     GREEK_LABELS,
@@ -36,6 +42,7 @@ from Utilities.plotting import (
     plot_error_vs_gap_grid,
     plot_variance_convexity_curve,
     plot_gap_function_heatmap,
+    plot_replication_error_vs_N,
 )
 from Utilities.profiling import (
     FOURNIER_PRODUCT_FN_MAP,
@@ -52,9 +59,11 @@ from Utilities.profiling import (
     evaluate_fixed_cpu_budget,
     evaluate_fixed_cpu_budget_comparison,
     plot_budget_accuracy_bars,
+    plot_budget_simulations_vs_time,
     plot_comparative_budget_accuracy_bars,
     plot_comparative_pareto_efficiency,
     plot_pareto_efficiency,
+    plot_runtime_vs_simulations,
 )
 from Methods.Malliavin import (
     compare_cutoff_functions,
@@ -80,6 +89,12 @@ __all__ = [
     "find_optimal_delta",
     "compute_empirical_convergence_rate",
     "is_catastrophic_eps_series",
+    "generate_summary_csv",
+    "summarize_replications",
+    "compute_efficiency_table",
+    "required_paths",
+    "estimator_label",
+    "expected_error_under_budget",
     # Plotting
     "GREEK_LABELS",
     "plot_epsilon_sensitivity",
@@ -97,6 +112,7 @@ __all__ = [
     "plot_error_vs_gap_grid",
     "plot_variance_convexity_curve",
     "plot_gap_function_heatmap",
+    "plot_replication_error_vs_N",
     "compare_cutoff_functions",
     "compare_delta_strike_sensitivities",
     # Profiling & Pareto
@@ -114,7 +130,9 @@ __all__ = [
     "evaluate_fixed_cpu_budget",
     "evaluate_fixed_cpu_budget_comparison",
     "plot_budget_accuracy_bars",
+    "plot_budget_simulations_vs_time",
     "plot_comparative_budget_accuracy_bars",
     "plot_pareto_efficiency",
     "plot_comparative_pareto_efficiency",
+    "plot_runtime_vs_simulations",
 ]

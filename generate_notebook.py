@@ -27,34 +27,20 @@ def build_notebook():
     cells = []
 
     # Cell 0: Header & Abstract
-    cells.append(nbf.v4.new_markdown_cell(r"""# European Options Sensitivity Analysis: Malliavin Calculus vs. Finite Difference Monte Carlo (FDMC) vs. Analytical Benchmark
-## Sample Size Requirements ($N^*$), Asymptotic Convergence ($N \\to 10^8$), Fixed Latency Budgets (250 ms – 5000 ms), and Fournié et al. (1999) Localization
+    cells.append(nbf.v4.new_markdown_cell(r"""# European Greeks: Finite Differences (FDMC) vs. Malliavin vs. Fournié Localization
+## Bias, Per-Path Variance, Cost per Path and Efficiency for a Call, a Digital and a Call with Terminal Knock-Out
 
-### Executive Overview
-In quantitative risk management, algorithmic trading, and dynamic hedging, evaluating option sensitivities (Greeks: $\\Delta, \\Gamma, \\mathcal{V}$) accurately and with minimal latency is paramount. While **Finite Difference Monte Carlo (FDMC)** is conceptually straightforward, it introduces three fundamental bottlenecks:
-1. **Discretization / Truncation Bias $\\mathcal{O}(\\varepsilon^2)$**: Difference quotients approximate mathematical derivatives with an inherent truncation error.
-2. **Catastrophic Cancellation & Variance Explosion**: As the perturbation $\\varepsilon \\to 0$, finite difference division by $\\varepsilon$ or $\\varepsilon^2$ destabilizes estimators. For discontinuous contracts (Digital Cash-or-Nothing and Barrier Up-and-Out options), the indicator derivative is a Dirac delta measure, causing catastrophic variance blowout $\\mathcal{O}(1/\\varepsilon^3)$ or complete estimator collapse to zero.
-3. **Multiple Simulation Passes**: Central differences require $4$ to $5$ passes ($S_0 \\pm \\varepsilon, \\sigma \\pm \\varepsilon, S_0$) per contract.
+### Overview
+**Finite differences (FDMC)** re-price with bumped inputs and take difference quotients (central differences, shared random numbers, $\varepsilon = 0.01$ unless stated). They have three costs:
+1. **Truncation bias** of order $\varepsilon^2$.
+2. **Variance that grows as $\varepsilon \to 0$** when the payoff is not smooth: for Gamma the per-path variance grows like $1/\varepsilon$ for a kink (call) and like $1/\varepsilon^3$ for a jump (digital, knock-out).
+3. **Five payoff evaluations per path** for $(\Delta, \Gamma, \mathcal{V})$: $S_0 \pm \varepsilon$, $S_0$, $\sigma \pm \varepsilon$.
 
-**Malliavin Calculus Monte Carlo** solves the discontinuity problem by applying integration by parts on Wiener space (Skorokhod duality). By transferring the differentiation operator off the payoff and onto the underlying Brownian motion:
-- **Zero Truncation Bias**: The estimator is mathematically unbiased ($\text{Bias} \\equiv 0$).
-- **Unconditional Stability on Discontinuous Payoffs**: Step indicators and boundary jumps are integrated against smooth Gaussian weights without perturbation or division by $\\varepsilon$.
-- **Single Simulation Pass**: All Greeks (Delta, Gamma, Vega) are computed simultaneously from a single Brownian path.
+**Malliavin** estimators move the derivative from the payoff onto a weight in $W_T$ (integration by parts). They are unbiased, need no bump, and use one payoff evaluation per path for all three Greeks. For smooth, unbounded payoffs their weights inflate the variance compared with the pathwise derivative.
 
-### The Smooth Payoff Variance Challenge & Fournié Localization:
-For smooth payoffs (e.g. Vanilla Call $(S_T - K)^+$), standard Malliavin integration by parts introduces quadratic weights $\\pi^\\Gamma, \\pi^{\\mathcal{V}} \\propto (Z^2 - 1)/\\sigma$. Multiplying the continuous payoff by a quadratic polynomial in Gaussian noise inflates sample variance relative to the Pathwise Derivative (IPA). 
+**Fournié et al. (1999) localization** uses the Malliavin weight only near the singularities, through a cutoff $\psi$, and the pathwise derivative elsewhere.
 
-To resolve this, **Fournié et al. (1999) introduced localized Malliavin calculus (Theorem 2.3)**:
-- Inside a localized transition band $[K-\\delta, K+\\delta]$ around the singularity: Malliavin integration by parts is applied.
-- Outside the transition band: The low-variance Pathwise Derivative (IPA) is applied.
-- Transition boundary: Smoothly coupled via a cutoff function $\\psi(S_T)$ and boundary derivative $-\\psi'(S_T)$.
-
-This notebook provides a comprehensive benchmark across sample sizes up to **$N = 100,000,000$** simulations, testing:
-1. **Four-Way Comparative Sensitivity**: Analytical Benchmark vs. Production FDMC ($\varepsilon = 0.01$) vs. Standard Malliavin vs. Fournié Localized Malliavin.
-2. **Realistic Institutional Evaluation**: Eliminating the artificial "ex-post optimal $\varepsilon^*$" bias by fixing $\varepsilon = 0.01$ beforehand, exposing FDMC's true structural vulnerabilities on discontinuous options.
-3. **Digital Option Fixed Latency Budget Bar Charts**: Empirical evaluation of achievable accuracy under strict institutional SLAs (250 ms – 5000 ms).
-4. **Variance Reduction**: Demonstration of an **$\approx 10\times$ drop in Vega variance** and **$\approx 23\times$ drop in Gamma variance** via Fournié localization.
-5. **Cutoff Function & $\delta$ Calibration**: Calibrated from our dedicated gap analysis (`analysis_fournier_smoothing_and_gap.ipynb`): Gaussian smoothing, universal scaling rule $\delta^* = 0.40 S_0 \sigma \sqrt{T} = 8.0$, and corridor constraint $\delta^* = \min(0.40 S_0 \sigma \sqrt{T}, \frac{H-K}{2}) = 2.625$ with boundary jump decomposition for barrier contracts."""))
+All comparisons of accuracy are based on $R = 100$ independent runs per estimator (one `np.random.default_rng(seed)` per run) at $N \in \{10^4, 10^5, 10^6\}$, with the per-path variance stored for every run. The single-run results up to $N = 10^8$ are shown for reference."""))
 
     # Cell 1: Mathematical Foundations
     cells.append(nbf.v4.new_markdown_cell(r"""---
@@ -85,9 +71,10 @@ Applying the product rule and Skorokhod integration by parts only to $\Phi(S_T) 
 2. **Localized Vega ($\mathcal{V}_{\text{loc}}$)**:
    $$\mathcal{V}_{\text{loc}} = e^{-rT} \mathbb{E}\left[ \Phi(S_T) \left(\psi(S_T) \pi^{\mathcal{V}} - \psi'(S_T) S_T (W_T - \sigma T)\right) + \Phi'(S_T) (1 - \psi(S_T)) S_T (W_T - \sigma T) \right]$$
 
-3. **Localized Gamma ($\Gamma_{\text{loc}}$)**:
-   $$\Gamma_{\text{loc}} = e^{-rT} \frac{K}{S_0} \mathbb{E}\left[ \Phi'(S_T) \left(\psi(S_T) \pi^\Delta - \psi'(S_T) \frac{S_T}{S_0}\right) \right]$$
-   *(Scaled by $K/S_0$ from the relationship $\Gamma_{\text{call}} = (K/S_0) \Delta_{\text{digital}}$; for digital contracts, $\Gamma$ is evaluated via exact Skorokhod duality $E[\Phi \pi^\Gamma]$).*
+3. **Localized Gamma ($\Gamma_{\text{loc}}$)**, general formula for any payoff:
+   $$\Gamma_{\text{loc}} = e^{-rT} \mathbb{E}\left[ \Phi\,\psi\,\pi^\Gamma + \Big(\Phi''(1 - \psi) - 2\Phi'\psi' - \Phi\psi''\Big)\left(\frac{S_T}{S_0}\right)^2 \right]$$
+   $\Phi'$ and $\Phi''$ are the classical (almost-everywhere) derivatives. The Dirac masses of the distributional derivatives sit at the singularities, where $\psi = 1$ and $\psi' = 0$, so they drop out. For the call with terminal knock-out the cutoff must satisfy this at both $K$ and $H$: $\psi = 1 - (1-\psi_K)(1-\psi_H)$ does, $\psi_K + \psi_H$ does not for the Gaussian cutoff (Section 5).
+   *(The earlier call-only shortcut $\Gamma_{\text{call}} = (K/S_0)\,\Delta^{\text{loc}}_{\text{digital}}$ is kept as a separate run, "Malliavin Fournié (Γ shortcut)", for comparison.)*
 
 ### 1.3 Supported Smoothing Functions $\psi(S_T)$
 With normalized distance $u = |S_T - K| / \delta$:
@@ -95,7 +82,19 @@ With normalized distance $u = |S_T - K| / \delta$:
 - **Compact Cubic Hermite**: $\psi(S_T) = 1 - 3u^2 + 2u^3$ for $u \le 1$, $0$ otherwise.
 - **Compact Cosine**: $\psi(S_T) = \frac{1}{2}(1 + \cos(\pi u))$ for $u \le 1$, $0$ otherwise.
 - **Compact Quintic**: $\psi(S_T) = 1 - 10u^3 + 15u^4 - 6u^5$ for $u \le 1$, $0$ otherwise.
-- **Rational Cauchy**: $\psi(S_T) = \frac{1}{1 + u^2}$, $\quad \psi'(S_T) = -\frac{2(S_T - K)}{\delta^2 (1 + u^2)^2}$"""))
+- **Rational Cauchy**: $\psi(S_T) = \frac{1}{1 + u^2}$, $\quad \psi'(S_T) = -\frac{2(S_T - K)}{\delta^2 (1 + u^2)^2}$
+
+### 1.4 Option A: Decoupled Bandwidths per Greek ($\delta_\Delta \ne \delta_\Gamma \ne \delta_\mathcal{V}$)
+A critical insight established in our dedicated gap analysis is that **the optimal Fournié smoothing bandwidth depends directly on the singularity order of each Greek**:
+- **Delta ($\Delta$) and Vega ($\mathcal{V}$): Continuous Kink ($C^0$)**
+  The payoff $g(S_T) = (S_T - K)^+$ is continuous. As $S_T \to K$, $g(S_T) \to 0$, which naturally suppresses the boundary derivative spike $-\psi'(S_T) \sim 1/\delta$. Therefore, Delta and Vega achieve minimal variance with a narrower bandwidth that maximizes the domain of the pathwise derivative:
+  $$\delta^*_\Delta = \delta^*_\mathcal{V} \approx 0.20 \times S_0 \sigma \sqrt{T} = 4.0 \quad (T = 1.0)$$
+- **Gamma ($\Gamma$): Discontinuous Step ($C^{-1}$)**
+  Gamma differentiates the digital step indicator $g'(S_T) = \mathbf{1}_{S_T > K}$, which jumps by $+1$ at $K$. The boundary term $-\psi'(S_T) \frac{S_T}{S_0}$ has no $(S_T - K)$ dampener and blows up as $\mathcal{O}(1/\delta)$ if $\delta$ is too small. Hence, Gamma strictly requires a wider bandwidth:
+  $$\delta^*_\Gamma \approx 0.50 \times S_0 \sigma \sqrt{T} = 10.0 \quad (T = 1.0)$$
+
+**Option A vs. Option B:**
+Rather than one compromise bandwidth for all Greeks (Option B, e.g. $\delta = 8.0$), **Option A uses one bandwidth per Greek** in the same Monte Carlo pass. Section 7 measures the difference."""))
 
     # Cell 2: Setup Code
     cells.append(nbf.v4.new_code_cell("""%load_ext autoreload
@@ -111,7 +110,7 @@ import Utilities as utils
 from products import (
     example_european_call_ATM,
     example_european_digital_ATM,
-    example_european_barrier_up_and_out_95,
+    example_european_call_terminal_knockout,
 )
 
 pd.set_option("display.precision", 6)
@@ -122,13 +121,13 @@ print("Environment and Utilities loaded successfully.")"""))
 
     # Cell 3: Data Ingestion Markdown
     cells.append(nbf.v4.new_markdown_cell(r"""---
-## 2. Benchmark Ingestion & Executive Summary ($N = 100,000,000$)
+## 2. Data
 
-We load the simulation results across sample sizes $N \in \{10^4, 10^5, 2.5 \times 10^5, 10^6, 2 \times 10^6, 5 \times 10^6, 10^7, 3 \times 10^7, 5 \times 10^7, 10^8\}$ for:
-1. **Analytical Benchmarks**: Black-Scholes closed-form solutions (QuantLib exact reference).
-2. **FDMC Simulation Results**: Central finite difference results across perturbation steps $\varepsilon \in \{10^{-1}, 10^{-2}, 10^{-3}\}$.
-3. **Standard Malliavin Simulation Results**: Exact Skorokhod integration by parts estimators.
-4. **Fournié Localized Malliavin Results**: Theorem 2.3 localized estimators calibrated with optimal settings from our gap analysis ($\delta = 8.0$ for Call/Digital, $\delta = 2.625$ for Barrier with exact boundary decomposition, Gaussian smoothing)."""))
+1. **Analytical benchmarks**: Black-Scholes closed forms (QuantLib for the digital). The call with terminal knock-out is two calls and a digital: $(S_T-K)^+ - (S_T-H)^+ - (H-K)\mathbf{1}_{S_T>H}$.
+2. **Single-run sweeps** (`FDMC_results.csv`, `malliavin_results.csv`, `malliavin_fournier_results.csv`): one seed, $N$ from $10^4$ to $10^8$, with the per-path variance and standard error of every Greek.
+3. **Replications** (`replications_summary.csv`, `efficiency.csv`): $R = 100$ seeds at $N \in \{10^4, 10^5, 10^6\}$, with bias, RMSE, coverage, per-path variance and time per path.
+
+Fournié settings: Gaussian cutoff, bandwidths $\delta_\Delta = \delta_\mathcal{V} = 4$, $\delta_\Gamma = 10$ for the call and the digital, and $\delta = (H-K)/2 = 2.625$ for the knock-out with $\psi = 1 - (1-\psi_K)(1-\psi_H)$."""))
 
     # Cell 4: Data Ingestion Code
     cells.append(nbf.v4.new_code_cell("""benchmarks_df, fdmc_df, malliavin_df, malliavin_fournier_df = utils.load_all_simulation_results()
@@ -137,20 +136,16 @@ mal_metrics_df = utils.compute_error_metrics(malliavin_df, benchmarks_df)
 four_metrics_df = utils.compute_error_metrics(malliavin_fournier_df, benchmarks_df)
 
 print("=== Exact Analytical Benchmark Reference Values ===")
-display(benchmarks_df.set_index("Product"))"""))
+display(benchmarks_df.set_index("Product"))
+
+# Independent replications (run_replications.py): R seeds per (estimator, product, N)
+rep_summary = pd.read_csv("./results/replications_summary.csv")
+efficiency_df = pd.read_csv("./results/efficiency.csv")"""))
 
     # Cell 5: Executive Comparative Summary Table Markdown
-    cells.append(nbf.v4.new_markdown_cell(r"""### 2.1 Side-by-Side Executive Comparison at Full Simulation Capacity ($N = 10^8$)
+    cells.append(nbf.v4.new_markdown_cell(r"""### 2.1 Single Run at $N = 10^8$
 
-Below, we compare the exact Analytical Benchmark against:
-- **Production FDMC with Fixed Step Size ($\varepsilon = 0.01$)**: In production, trading desks cannot retroactively cherry-pick an ex-post optimal $\varepsilon^*$ for each individual Greek and contract because the true analytical benchmark is unknown. We strictly **fix $\varepsilon = 0.01$ globally** as the standard production benchmark.
-- **Standard Malliavin Monte Carlo**: Exact Skorokhod duality with zero truncation bias.
-- **Fournié Localized Malliavin Monte Carlo**: Theorem 2.3 localized smoothing coupling.
-
-Notice the remarkable performance differences:
-- For **Vanilla Call**: FDMC ($\varepsilon = 0.01$) achieves acceptable accuracy, but **Fournié Malliavin is $156\times$ more accurate for Gamma** ($4.2 \times 10^{-7}$ vs $6.5 \times 10^{-5}$)!
-- For **Digital Call**: Fixed FDMC ($\varepsilon = 0.01$) fails miserably on Gamma ($3.57 \times 10^{-3}$ error, failing the $0.0005$ tolerance threshold), while Fournié achieves sub-ppb accuracy ($3.6 \times 10^{-9}$), an astounding **$\approx 984,000\times$ improvement**!
-- For **Barrier Up-and-Out Call**: Fixed FDMC ($\varepsilon = 0.01$) suffers severe numerical catastrophe on Gamma ($6.53 \times 10^{-2}$ error, failing tolerance by $>130\times$), while Fournié achieves $4.5 \times 10^{-6}$, a **$14,390\times$ improvement**!"""))
+Absolute errors of one run at $N = 10^8$, FDMC at the fixed production step $\varepsilon = 0.01$ (in practice the analytical value is unknown, so $\varepsilon$ cannot be tuned per Greek after the fact). A single run's error is one draw of a random variable whose size is about one standard error, so ratios of these errors between methods are noisy. Use the replications and the per-path variances (Section 6) for comparisons."""))
 
     # Cell 6: Executive Comparative Summary Table Code
     cells.append(nbf.v4.new_code_cell("""comp_summary = utils.compute_comparative_summary_table(
@@ -165,18 +160,14 @@ display(comp_summary)"""))
 
 ### The Variance Challenge Solved:
 For smooth payoffs, standard Malliavin integration by parts uses quadratic polynomial weights in $W_T$, which introduces higher sample variance than the pathwise derivative.
-As shown below, **Fournié localization** completely eliminates this variance overhead:
-- **Standard Malliavin** (teal square markers): Exhibits pure $\\mathcal{O}(N^{-1/2})$ convergence, but with higher baseline variance.
-- **Fournié Localized Malliavin** (dark blue diamond markers): Shifts the convergence curve down by more than an order of magnitude!
-- **FDMC Fixed Step $\\varepsilon = 0.01$** (orange dashed line): Exhibits competitive variance for smooth payoffs, but plateaus at a higher bias floor than Fournié.
-- **FDMC Coarse Step $\\varepsilon = 10^{-1}$** (yellow dotted line): Suffers **bias saturation**, plateauing at high error."""))
+The error plots below come from $R = 100$ independent runs (one `np.random.default_rng(seed)` per run) at $N \in \{10^4, 10^5, 10^6\}$:
+- **Solid line**: RMSE against the analytical value over the $R$ runs.
+- **Band**: 10th–90th percentile of $|\hat\theta - \theta|$ across runs.
+- **Dashed line**: extrapolation $\sqrt{\text{bias}^2 + \text{Var}/N}$ to $N = 10^8$, using the measured per-path variance (the bias term is kept only when significant, e.g. FDMC truncation bias).
+- **FDMC** uses the fixed production step $\varepsilon = 0.01$; the Fournié Gamma uses the general localized formula, with the old call-only shortcut shown dotted."""))
 
     # Cell 8: Deep Dive 1: Convergence Plot
-    cells.append(nbf.v4.new_code_cell("""fig_call_conv = utils.plot_comparative_convergence_vs_N(
-    fdmc_metrics_df, mal_metrics_df, "Call European ATM",
-    tolerance_dict={"delta": 0.001, "gamma": 0.0005, "vega": 0.05},
-    fournier_metrics_df=four_metrics_df,
-)
+    cells.append(nbf.v4.new_code_cell("""fig_call_conv = utils.plot_replication_error_vs_N(rep_summary, "Call European ATM")
 plt.show()"""))
 
     # Cell 9: Deep Dive 1: Grouped Bar Chart
@@ -193,15 +184,11 @@ plt.show()"""))
 ### The Structural Failure of Finite Differences on Indicator Payoffs:
 The digital call pays $\\mathbf{1}_{S_T > K}$. The derivative is a Dirac delta measure $\\delta(S_T - K)$.
 - In FDMC, central differences divide by $\\varepsilon$ or $\\varepsilon^2$ across a step discontinuity. If $\\varepsilon$ is too small, no paths cross $[K-\\varepsilon, K+\\varepsilon]$, leading to complete estimator collapse. If $\\varepsilon$ is large, bias $\\mathcal{O}(\\varepsilon^2)$ is unacceptably high.
-- **Malliavin calculus transfers the derivative to smooth Gaussian weights**, maintaining constant bounded variance.
-- As seen below, Malliavin is **$> 5500\\times$ more accurate for Digital Gamma** at $N = 10^8$!"""))
+- **Malliavin calculus transfers the derivative to smooth Gaussian weights**, so its variance does not depend on any step size.
+- At $\varepsilon = 0.01$ the per-path variance of the FDMC digital Gamma is about $3.6 \times 10^{4}$, against about $5 \times 10^{-6}$ for standard Malliavin (`efficiency.csv`)."""))
 
     # Cell 11: Deep Dive 2: Convergence Plot
-    cells.append(nbf.v4.new_code_cell("""fig_dig_conv = utils.plot_comparative_convergence_vs_N(
-    fdmc_metrics_df, mal_metrics_df, "Digital European ATM",
-    tolerance_dict={"delta": 0.001, "gamma": 0.0005, "vega": 0.01},
-    fournier_metrics_df=four_metrics_df,
-)
+    cells.append(nbf.v4.new_code_cell("""fig_dig_conv = utils.plot_replication_error_vs_N(rep_summary, "Digital European ATM")
 plt.show()"""))
 
     # Cell 12: Deep Dive 2: Digital Greeks Bar Chart & Gamma Table
@@ -222,35 +209,53 @@ display(dig_mal_gamma)"""))
 
     # Cell 13: Deep Dive 3: Barrier Up-and-Out Call Markdown
     cells.append(nbf.v4.new_markdown_cell(r"""---
-## 5. Deep Dive: European Terminal Barrier Up-and-Out Call
+## 5. Deep Dive: Call with Terminal Knock-Out
 
-### Boundary Jump Discontinuity at $H = 105.25$:
+Payoff $(S_T - K)^+ \mathbf{1}_{S_T \le H}$, checked at maturity only (not a path-dependent barrier).
+
+### Jump Discontinuity at $H = 105.25$:
 Differentiating across the barrier creates a negative Dirac jump $-(H - K) \\delta(S_T - H)$.
-- FDMC dividing by $\\varepsilon^2$ next to the barrier causes severe instability.
-- Malliavin calculus handles the upper barrier smoothly with no numerical blowout, outperforming FDMC by over **$7600\\times$** in Gamma accuracy at $N = 10^8$."""))
+- FDMC divides a jump of size $H - K$ by $\varepsilon^2$, so its Gamma has a per-path variance of about $10^{6}$ at $\varepsilon = 0.01$.
+- Standard Malliavin has a per-path Gamma variance of about $5 \times 10^{-6}$: about $90\%$ of paths end outside $[K, H]$, where the payoff and the sample are zero.
+- Fournié with the unbiased cutoff is unbiased but has a larger variance than standard Malliavin for Delta and Gamma. Fournié with $\psi_K + \psi_H$ (dotted line) is biased: its error stops decreasing with $N$."""))
 
     # Cell 14: Deep Dive 3: Convergence Plot
-    cells.append(nbf.v4.new_code_cell("""fig_bar_conv = utils.plot_comparative_convergence_vs_N(
-    fdmc_metrics_df, mal_metrics_df, "Barrier European Up and Out 95",
-    tolerance_dict={"delta": 0.001, "gamma": 0.0005, "vega": 0.05},
-    fournier_metrics_df=four_metrics_df,
-)
+    cells.append(nbf.v4.new_code_cell("""fig_bar_conv = utils.plot_replication_error_vs_N(rep_summary, "Call with terminal knock-out")
 plt.show()"""))
 
     # Cell 15: Deep Dive 3: Grouped Bar Chart
     cells.append(nbf.v4.new_code_cell("""fig_bar_bars = utils.plot_comparative_greeks_bars(
-    fdmc_metrics_df, mal_metrics_df, "Barrier European Up and Out 95",
+    fdmc_metrics_df, mal_metrics_df, "Call with terminal knock-out",
     n_choice=100_000_000, fournier_metrics_df=four_metrics_df
 )
 plt.show()"""))
 
+    # Cell 15b: Efficiency Markdown
+    cells.append(nbf.v4.new_markdown_cell(r"""---
+## 6. Per-Path Variance, Time per Path and Efficiency
+
+Every estimator is a mean of i.i.d. per-path quantities, so for a tolerance $\text{tol}$ at confidence $z$ the required number of paths is
+$$N^* = \frac{z^2\,\text{Var}}{\text{tol}^2}, \qquad \frac{N^*_{\text{Malliavin}}}{N^*_{\text{FDMC}}} = \frac{\text{Var}_{\text{Malliavin}}}{\text{Var}_{\text{FDMC}}}.$$
+All three Greeks are timed together per method (FDMC: 5 payoff evaluations per path; standard Malliavin: 1; Fournié: 1 plus the cutoff evaluations). Efficiency is $\text{Var} \times \text{time per path}$, the CPU time needed per unit of inverse squared error (lower is better).
+- `n_ratio_vs_FDMC`: paths needed relative to FDMC ($\varepsilon = 0.01$) for the same SE.
+- `efficiency_ratio_vs_FDMC`: CPU time relative to FDMC for the same SE.
+- `n_star`, `time_star_s`: paths and seconds for a 95% half-width of 1% of the analytical value. They ignore bias; `bias_exceeds_tol` flags FDMC rows where the truncation bias alone exceeds that tolerance."""))
+
+    # Cell 15c: Efficiency Table
+    cells.append(nbf.v4.new_code_cell("""display(efficiency_df)"""))
+
     # Cell 16: Fournié Deep Dive Markdown
     cells.append(nbf.v4.new_markdown_cell(r"""---
-## 6. Fournié Localized Malliavin: Empirical Variance Reduction & Sensitivity Analysis
+## 7. Fournié Localized Malliavin: Empirical Variance Reduction & Decoupled Bandwidths (Option A)
 
-### 6.1 Direct Variance Measurement: Standard vs. Fournié Localized Malliavin
+### Direct Variance Measurement: Standard vs. Coupled Fournié vs. Option A Decoupled
 We execute 100 independent Monte Carlo runs of $N = 10,000$ simulations to directly measure the sample variance of the estimators:
-$$\\text{Var}(\\hat{\\theta}) = \\frac{1}{M-1} \\sum_{m=1}^M (\\hat{\\theta}_m - \\bar{\\theta})^2$$"""))
+$$\text{Var}(\hat{\theta}) = \frac{1}{M-1} \sum_{m=1}^M (\hat{\theta}_m - \bar{\theta})^2$$
+
+We compare:
+1. **Standard Malliavin**: Pure Skorokhod duality with polynomial weights.
+2. **Coupled Fournié ($\delta = 8.0$)**: Uniform compromise bandwidth.
+3. **Option A Decoupled Fournié**: $\delta^*_\Delta = 4.0$, $\delta^*_\Gamma = 10.0$, $\delta^*_\mathcal{V} = 4.0$ tailored to each Greek's singularity order."""))
 
     # Cell 17: Empirical Variance Measurement Code
     cells.append(nbf.v4.new_code_cell("""from Methods.Malliavin.malliavin_european_standard import malliavin_greeks_european_call, generate_paths
@@ -260,198 +265,112 @@ params = example_european_call_ATM
 n_runs = 100
 n_sims = 10000
 
-std_vegas, std_gammas = [], []
-loc_vegas, loc_gammas = [], []
+std_deltas, std_gammas, std_vegas = [], [], []
+coup_deltas, coup_gammas, coup_vegas = [], [], []
+decoup_deltas, decoup_gammas, decoup_vegas = [], [], []
+
+decoupled_deltas = {"delta": 4.0, "gamma": 10.0, "vega": 4.0}
 
 for s in range(n_runs):
     paths = generate_paths(params["T"], n_sims, seed=s)
     r_std = malliavin_greeks_european_call(params, N=n_sims, paths=paths)
-    r_loc = malliavin_fournier_greeks_european_call(params, N=n_sims, paths=paths, cutoff_type="gaussian", delta_strike=8.0)
-    std_vegas.append(r_std["vega"])
+    r_coup = malliavin_fournier_greeks_european_call(params, N=n_sims, paths=paths, cutoff_type="gaussian", delta_strike=8.0)
+    r_decoup = malliavin_fournier_greeks_european_call(params, N=n_sims, paths=paths, cutoff_type="gaussian", delta_strike=decoupled_deltas)
+    
+    std_deltas.append(r_std["delta"])
     std_gammas.append(r_std["gamma"])
-    loc_vegas.append(r_loc["vega"])
-    loc_gammas.append(r_loc["gamma"])
+    std_vegas.append(r_std["vega"])
+    
+    coup_deltas.append(r_coup["delta"])
+    coup_gammas.append(r_coup["gamma"])
+    coup_vegas.append(r_coup["vega"])
+    
+    decoup_deltas.append(r_decoup["delta"])
+    decoup_gammas.append(r_decoup["gamma"])
+    decoup_vegas.append(r_decoup["vega"])
 
-var_std_v, var_loc_v = float(np.var(std_vegas)), float(np.var(loc_vegas))
-var_std_g, var_loc_g = float(np.var(std_gammas)), float(np.var(loc_gammas))
+var_std_d, var_std_g, var_std_v = float(np.var(std_deltas)), float(np.var(std_gammas)), float(np.var(std_vegas))
+var_coup_d, var_coup_g, var_coup_v = float(np.var(coup_deltas)), float(np.var(coup_gammas)), float(np.var(coup_vegas))
+var_decoup_d, var_decoup_g, var_decoup_v = float(np.var(decoup_deltas)), float(np.var(decoup_gammas)), float(np.var(decoup_vegas))
 
 var_df = pd.DataFrame([
-    {"Greek": "Vega", "Std Malliavin Var": var_std_v, "Fournié Malliavin Var": var_loc_v, "Variance Reduction": f"{var_std_v/var_loc_v:.2f}x"},
-    {"Greek": "Gamma", "Std Malliavin Var": var_std_g, "Fournié Malliavin Var": var_loc_g, "Variance Reduction": f"{var_std_g/var_loc_g:.2f}x"},
+    {
+        "Greek": "Delta (Δ)",
+        "Std Malliavin Var": var_std_d,
+        "Coupled Fournié (δ=8) Var": var_coup_d,
+        "Option A Decoupled Var": var_decoup_d,
+        "Redux vs Std (Coupled)": f"{var_std_d/var_coup_d:.2f}x",
+        "Redux vs Std (Option A)": f"{var_std_d/var_decoup_d:.2f}x",
+        "Option A Gain vs Coupled": f"+{(var_coup_d/var_decoup_d - 1)*100:.1f}%",
+    },
+    {
+        "Greek": "Gamma (Γ)",
+        "Std Malliavin Var": var_std_g,
+        "Coupled Fournié (δ=8) Var": var_coup_g,
+        "Option A Decoupled Var": var_decoup_g,
+        "Redux vs Std (Coupled)": f"{var_std_g/var_coup_g:.2f}x",
+        "Redux vs Std (Option A)": f"{var_std_g/var_decoup_g:.2f}x",
+        "Option A Gain vs Coupled": f"+{(var_coup_g/var_decoup_g - 1)*100:.1f}%",
+    },
+    {
+        "Greek": "Vega (V)",
+        "Std Malliavin Var": var_std_v,
+        "Coupled Fournié (δ=8) Var": var_coup_v,
+        "Option A Decoupled Var": var_decoup_v,
+        "Redux vs Std (Coupled)": f"{var_std_v/var_coup_v:.2f}x",
+        "Redux vs Std (Option A)": f"{var_std_v/var_decoup_v:.2f}x",
+        "Option A Gain vs Coupled": f"+{(var_coup_v/var_decoup_v - 1)*100:.1f}%",
+    },
 ])
-print("=== Empirical Variance Reduction of Fournié Localization (100 runs x 10k paths, delta=8.0) ===")
+print("=== Empirical Variance Reduction: Standard vs. Coupled Fournié vs. Option A Decoupled ===")
 display(var_df)"""))
 
-    # Cell 18: Cutoff Smoothing Functions Sensitivity Markdown & Code
-    cells.append(nbf.v4.new_markdown_cell(r"""### 6.2 Cutoff Smoothing Function Comparison
-We compare the $5$ smoothing functions (`gaussian`, `cubic`, `cosine`, `quintic`, `cauchy`) for the Vanilla European Call ($N = 100,000, \\delta = 8.0$):"""))
-
-    cells.append(nbf.v4.new_code_cell("""call_bench = benchmarks_df[benchmarks_df["Product"] == "Call European ATM"].iloc[0].to_dict()
-
-# Systematic evaluation across 5 smooth functions (calibrated delta = 8.0)
-cutoff_res = utils.compare_cutoff_functions(params, N=100000, delta_strike=8.0)
-df_cutoffs = utils.summarize_cutoff_functions(cutoff_res, call_bench)
-print("=== Comparison Across 5 Smoothing Cutoff Functions (N = 100,000, delta = 8.0) ===")
-display(df_cutoffs)
-
-fig_cut = utils.plot_fournier_cutoff_comparison(cutoff_res, call_bench, "Call European ATM")
-plt.show()"""))
-
-    # Cell 19: Delta Strike Sensitivity Markdown & Code
-    cells.append(nbf.v4.new_markdown_cell(r"""### 6.3 Smoothing Half-Width $\\delta$ Sensitivity
-We evaluate how the choice of $\\delta \\in [1.0, 3.0, 5.0, 8.0, 10.0, 15.0, 20.0, 30.0]$ affects estimator accuracy:
-- **Small $\\delta$ ($\delta < 3$)**: Very narrow smoothing window forces steep boundary derivatives $-\\psi'(S_T) \propto 1/\delta$, increasing localized boundary variance.
-- **Large $\\delta$ ($\delta > 20$)**: Broad window degenerates toward Standard Malliavin, re-introducing quadratic weight variance.
-- **Optimal Choice ($\delta^* \approx 8.0$)**: Confirms the universal scaling law $\delta^* = 0.40 S_0 \sigma \sqrt{T} = 8.0$ derived in our gap analysis notebook."""))
-
-    cells.append(nbf.v4.new_code_cell("""deltas = [1.0, 3.0, 5.0, 8.0, 10.0, 15.0, 20.0, 30.0]
-delta_res = utils.compare_delta_strike_sensitivities(params, N=100000, deltas=deltas, cutoff_type="gaussian")
-df_deltas = utils.summarize_delta_strike_sensitivities(delta_res, call_bench)
-print("=== Comparison Across Smoothing Half-Widths delta (N = 100,000, Gaussian) ===")
-display(df_deltas)
-
-fig_del = utils.plot_fournier_delta_sensitivity(delta_res, call_bench, "Call European ATM")
-plt.show()"""))
-
-    # Cell 20: Minimum N* Requirements Markdown
+    # Cell 20: Time Budget Markdown
     cells.append(nbf.v4.new_markdown_cell(r"""---
-## 7. Sample Size Requirements ($N^*$) for Production Precision
+## 8. Fixed Time Budgets
 
-Target institutional tolerances:
-- **Delta ($\\Delta$):** Target $|e| \\le 0.0010$ (within $10$ bps of delta).
-- **Gamma ($\\Gamma$):** Target $|e| \\le 0.0005$ (within $0.0005$ gamma units).
-- **Vega ($\\mathcal{V}$):** Target $|e| \\le 0.0500$ (within $0.05$ vega points).
+Given a CPU budget $B$ and the measured time per path $t$ (all three Greeks together), an estimator gets $N = B / t$ paths and its expected error is
+$$\text{RMSE}(B) = \sqrt{\text{bias}^2 + \text{Var}\cdot t / B}.$$
+The bias term is kept only when it is significant in the replications. The table gives the expected RMSE for budgets of 250 ms, 1 s and 5 s. It replaces the earlier budget and Pareto charts, which were built from the error of a single run at each $N$."""))
 
-### Fixed-Step Production Evaluation ($\varepsilon = 0.01$):
-Evaluating FDMC with a fixed step size $\varepsilon = 0.01$ reveals critical production insights:
-- **FDMC fails to satisfy tolerance** on Digital Gamma (best error $0.0036 > 0.0005$) and Barrier Gamma (best error $0.0072 > 0.0005$), regardless of how large $N$ becomes!
-- **Malliavin achieves tolerance easily** at $N^* = 10^4$ simulations across all contracts and Greeks, demonstrating its indispensability for discontinuous payoffs."""))
+    cells.append(nbf.v4.new_code_cell("""budget_df = utils.expected_error_under_budget(efficiency_df, budgets_ms=[250.0, 1000.0, 5000.0])
+budget_df = budget_df[~budget_df["Estimator"].isin(["FDMC (ε=0.1)", "FDMC (ε=0.001)"])]
+display(budget_df.pivot_table(index=["Product", "Greek", "Estimator"], columns="budget_ms", values="expected_rmse"))"""))
 
-    # Cell 21: Timing Profiling & Min N* Comparison Code
-    cells.append(nbf.v4.new_code_cell("""# Benchmark execution times across sample sizes
-fdmc_timing = utils.benchmark_fdmc_execution_time(
-    n_sims=[10_000, 100_000, 250_000, 1_000_000, 2_000_000], num_repeats=3
-)
-mal_timing = utils.benchmark_malliavin_execution_time(
-    n_sims=[10_000, 100_000, 250_000, 1_000_000, 2_000_000], num_repeats=3
-)
-four_timing = utils.benchmark_fournier_execution_time(
-    n_sims=[10_000, 100_000, 250_000, 1_000_000, 2_000_000], num_repeats=3
-)
-
-min_n_comp = utils.find_min_acceptable_N_comparison(
-    fdmc_metrics_df, mal_metrics_df,
-    criterion="abs_error",
-    fdmc_timing_df=fdmc_timing,
-    malliavin_timing_df=mal_timing,
-)
-
-print("=== Minimum Required Sample Size (N*) and Wall-Clock Time: FDMC (ε=0.01) vs. Malliavin ===")
-display(min_n_comp[[
-    "Product", "Greek", "Target Tol",
-    "FDMC Min N*", "FDMC Time (ms)", "FDMC Status",
-    "Malliavin Min N*", "Malliavin Time (ms)", "Malliavin Status",
-    "Speedup (FDMC/Mal Time)"
-]])"""))
-
-    # Cell 22: Joint Wall-Clock Runtime Profiling & Computational Speedup
+    # Cell 22: Joint Wall-Clock Runtime Profiling
     cells.append(nbf.v4.new_markdown_cell(r"""---
-## 8. Joint Wall-Clock Runtime Profiling & Computational Speedup
+## 9. Wall-Clock Time vs. $N$
 
-Because Malliavin evaluates Delta, Gamma, and Vega simultaneously from **a single simulation pass**, it achieves a **$2.5\\times$ to $3.5\\times$ wall-clock speedup** over multi-pass FDMC."""))
+Total time for all three Greeks at several $N$ (median of 3 repeats). FDMC evaluates the payoff 5 times per path, standard Malliavin once, and Fournié once plus the cutoff evaluations, so FDMC and Fournié cost about the same per path and standard Malliavin less (see `time_per_path_ns` in Section 6)."""))
 
     cells.append(nbf.v4.new_code_cell("""joint_timing_comp = utils.benchmark_joint_fdmc_vs_malliavin(
     n_sims=[10_000, 100_000, 250_000, 1_000_000, 2_000_000], num_repeats=3,
     include_fournier=True,
 )
-print("=== Joint Execution Time (ms) Across All Greeks Combined: Speedup vs. FDMC ===")
 display(joint_timing_comp)"""))
 
-    # Cell 23: Fixed Latency CPU Budget Evaluation
-    cells.append(nbf.v4.new_markdown_cell(r"""---
-## 9. Fixed Latency CPU Budget Evaluation (250 ms, 500 ms, 1000 ms, 2500 ms, 5000 ms)
-
-### Evaluating Institutional SLAs with Production FDMC ($\varepsilon = 0.01$):
-Under strict latency constraints (e.g. real-time market making or intra-day risk aggregation):
-1. **Digital Option Budget Chart**: Notice how FDMC ($\varepsilon = 0.01$) suffers severe error plateaus due to step-discontinuity bias, failing precision targets even with 5000 ms of compute, while Malliavin delivers sub-basis-point accuracy.
-2. **Vanilla Call Budget Chart**: Under large time budgets, Fournié Malliavin resolves Standard Malliavin's variance gap and achieves superior accuracy to FDMC!
-3. **Barrier Option Budget Chart**: With calibrated corridor bandwidth ($\delta = 2.625$) and exact boundary jump decomposition, Fournié Malliavin error decays monotonically with increasing time budget, completely eliminating the flat $10^{-3}$ error bar plateau and delivering $> 150\times$ to $14,000\times$ superior accuracy over FDMC!"""))
-
-    cells.append(nbf.v4.new_code_cell("""comp_budget_df = utils.evaluate_fixed_cpu_budget_comparison(
-    fdmc_metrics_df, mal_metrics_df,
-    fdmc_timing, mal_timing,
-    budgets_ms=[250.0, 500.0, 1000.0, 2500.0, 5000.0],
-    criterion="abs_error",
-    fournier_metrics_df=four_metrics_df,
-    fournier_timing_df=four_timing,
-)
-display(comp_budget_df)"""))
-
-    # Cell 24: Budget Accuracy Bar Charts (including Digital Call requested by user)
-    cells.append(nbf.v4.new_code_cell("""# 1. Vanilla Call Budget Bar Chart
-fig_b_call = utils.plot_comparative_budget_accuracy_bars(comp_budget_df, "Call European ATM")
-plt.show()
-
-# 2. Digital Option Budget Bar Chart (Requested by user)
-fig_b_dig = utils.plot_comparative_budget_accuracy_bars(comp_budget_df, "Digital European ATM")
-plt.show()
-
-# 3. Barrier Option Budget Bar Chart
-fig_b_bar = utils.plot_comparative_budget_accuracy_bars(comp_budget_df, "Barrier European Up and Out 95")
+    cells.append(nbf.v4.new_code_cell("""fig_runtime = utils.plot_runtime_vs_simulations(joint_timing_comp)
 plt.show()"""))
 
-    # Cell 25: Pareto Efficiency Frontiers
+    # Cell 26: Summary
     cells.append(nbf.v4.new_markdown_cell(r"""---
-## 10. Pareto Efficiency Frontiers: Wall-Clock Execution Time vs. Absolute Error"""))
+## 10. Summary
 
-    cells.append(nbf.v4.new_code_cell("""pareto_comp_df = utils.construct_comparative_pareto_dataset(
-    fdmc_metrics_df, mal_metrics_df, fdmc_timing, mal_timing, criterion="abs_error"
-)
+All statements below come from the per-path variances, biases and timings in Section 6 ($R = 100$ runs, $N = 10^6$, FDMC at $\varepsilon = 0.01$).
 
-fig_p_call = utils.plot_comparative_pareto_efficiency(pareto_comp_df, "Call European ATM")
-plt.show()
+**Call (smooth, unbounded payoff)**
+- Delta and Vega: FDMC is effectively the pathwise derivative and has the lowest variance. Standard Malliavin needs about $6\times$ (Delta) and $13\times$ (Vega) more paths; per path it is about $2.7\times$ cheaper, so about $2\times$ and $5\times$ more CPU time. Fournié is close to FDMC.
+- Gamma: FDMC's per-path variance grows like $1/\varepsilon$. Standard Malliavin needs about $70\times$ fewer paths than FDMC, Fournié (general formula) about $7\times$ fewer again; the call-only shortcut a further $3.5\times$ fewer.
 
-fig_p_dig = utils.plot_comparative_pareto_efficiency(pareto_comp_df, "Digital European ATM")
-plt.show()
+**Digital (jump)**
+- FDMC Gamma is unusable at $\varepsilon = 0.01$ (per-path variance $\sim 10^4$, growing like $1/\varepsilon^3$); Delta needs about $10^3\times$ more paths than standard Malliavin.
+- Standard Malliavin has the lowest variance for Delta and Gamma; Fournié has the lowest for Vega.
 
-fig_p_bar = utils.plot_comparative_pareto_efficiency(pareto_comp_df, "Barrier European Up and Out 95")
-plt.show()"""))
+**Call with terminal knock-out**
+- Standard Malliavin is the best choice for all three Greeks once cost per path is included.
+- Fournié needs a cutoff with $\psi = 1$ and $\psi' = 0$ at both $K$ and $H$. With $\psi_K + \psi_H$ and a Gaussian cutoff the estimator is biased (Delta and Gamma even have the wrong sign).
 
-    # Cell 26: Final Practitioner Summary
-    cells.append(nbf.v4.new_markdown_cell(r"""---
-## 11. Practitioner Summary & Institutional Recommendations
-
-### Key Answers to Architectural Questions:
-
-#### 1. What $N$ do we need to get good results in each case?
-- **Vanilla Call:**
-  - **Fournié Localized Malliavin:** $N^* = 10^4$ simulations (achieved in **$< 1$ ms**) satisfies Delta ($< 10$ bps), Gamma ($< 0.0005$), and Vega ($< 0.05$) tolerances immediately. At $N = 10^8$, Fournié achieves a Gamma error of $4.2 \times 10^{-7}$ ($156\times$ better than FDMC).
-  - **FDMC ($\varepsilon = 0.01$):** Requires $N^* \ge 10^5$ simulations.
-- **Digital Option:**
-  - **Malliavin:** $N^* = 10^4$ meets Delta and Gamma tolerances immediately. Gamma error converges cleanly to zero.
-  - **FDMC ($\varepsilon = 0.01$):** Fundamentally fails Gamma tolerance ($0.0036 > 0.0005$) even at $N = 10^8$ simulations due to indicator step-bias.
-- **Barrier Up-and-Out Call:**
-  - **Malliavin (Standard & Fournié):** $N^* = 10^5$ simulations satisfies all tolerance thresholds, converging down to $10^{-6}$ precision.
-  - **FDMC ($\varepsilon = 0.01$):** Fails Gamma tolerance completely even at $N = 10^8$ ($0.0072 > 0.0005$) due to barrier boundary cancellation blowout.
-
-#### 2. How does it converge as $N$ gets large?
-- **Malliavin (Standard & Fournié):** Displays exact theoretical $\mathcal{O}(N^{-1/2})$ Monte Carlo convergence across all Greeks without bias plateaus or cancellation.
-- **FDMC:** Error is bounded from below by the quadratic discretization bias $\mathcal{O}(\varepsilon^2)$. Once $N$ is large enough that variance drops below the bias floor, FDMC ceases to improve.
-
-#### 3. What do we get given a time budget? How does that compare to FDMC?
-- **Throughput Advantage:** Malliavin evaluates all Greeks in a single pass, delivering a **$2.5\times$ to $3.5\times$ speedup** over FDMC.
-- **Latency SLAs (250 ms – 5000 ms):**
-  - For **Digital and Barrier options**, Malliavin delivers **$150\times$ to $14,000\times$ higher accuracy** under every budget.
-  - For **Vanilla Calls**, Fournié localization completely eliminates the standard Malliavin weight variance, outperforming FDMC even under large budgets.
-
-#### 4. Which smoothing function and delta should be used in production?
-- **Smoothing Function:** The **Gaussian** $\psi(S_T) = \exp(-0.5 ((S_T - K)/\delta)^2)$ is optimal across all contracts due to its $C^\infty$ smoothness and minimal boundary derivative peak ($|\psi'| \le 0.606/\delta$).
-- **Smoothing Half-Width $\delta$:**
-  - **Vanilla & Digital Options:** The universal scaling law $\delta^* = 0.40 S_0 \sigma \sqrt{T}$ ($\delta = 8.0$ for $S_0=100, \sigma=0.2, T=1$) minimizes estimator variance while preserving zero bias.
-  - **Corridor / Barrier Options:** Enforce the corridor constraint $\delta^* = \min(0.40 S_0 \sigma \sqrt{T}, \frac{H - K}{2}) = 2.625$ to prevent destructive window overlap, and treat boundary jumps via exact Skorokhod duality / decomposition to eliminate boundary bias plateaus.
-
-### Final Production Recommendation:
-Deploy **Fournié Localized Malliavin Monte Carlo** as the core sensitivity engine for all European options. It combines the zero-bias stability of Skorokhod calculus on discontinuous payoffs with the low variance of pathwise differentiation on smooth payoffs."""))
+**Bias of FDMC**: at $\varepsilon = 0.01$ the truncation bias is below the noise of $R = 100$ runs at $N = 10^6$ except for the knock-out Vega; at $\varepsilon = 0.1$ it is large for Vega. The main problem of FDMC on non-smooth payoffs is variance, not bias."""))
 
     nb.cells = cells
     return nb
