@@ -210,15 +210,15 @@ plt.show()
 
 # %% [markdown]
 # ---
-# ## 5b. Short Maturity: Call at $T = 1/12$
+# ## 5b. Short Maturity: Call at $T = 1/252$ (One Trading Day)
 #
-# Same replications for the at-the-money call with one month to maturity. The standard Malliavin weights grow as $T$ shrinks ($\pi^\Delta \propto T^{-1/2}$, $\pi^\Gamma \propto T^{-1}$), but at the money so do the Greeks they estimate ($\Gamma \propto T^{-1/2}$) and the payoff shrinks ($\propto S_0\sigma\sqrt{T}$). The per-path standard deviation relative to the Greek is therefore about the same at both maturities (Section 6).
+# Same replications for the at-the-money call with one trading day to maturity. The standard Malliavin weights grow as $T$ shrinks ($\pi^\Delta \propto T^{-1/2}$, $\pi^\Gamma \propto T^{-1}$), but at the money so do the Greeks they estimate ($\Gamma \propto T^{-1/2}$) and the payoff shrinks ($\propto S_0\sigma\sqrt{T}$). The per-path standard deviation relative to the Greek is therefore about the same at both maturities (table below: Delta 2.24 vs 2.37, Gamma and Vega 5.59 vs 6.92). What changes is the comparison with FDMC for Gamma: at a fixed $\varepsilon = 0.01$ FDMC's relative noise falls with $T$ (14.5 vs 58), so standard Malliavin needs 7× fewer paths than FDMC at one day against 70× at one year.
 
 # %%
-fig_1m = utils.plot_replication_error_vs_N(rep_summary, "Call European 1M")
+fig_1d = utils.plot_replication_error_vs_N(rep_summary, "Call European 1D")
 plt.show()
 
-rel = efficiency_df[efficiency_df["Product"].isin(["Call European ATM", "Call European 1M"])
+rel = efficiency_df[efficiency_df["Product"].isin(["Call European ATM", "Call European 1D"])
                     & ~efficiency_df["Estimator"].isin(["FDMC (ε=0.1)", "FDMC (ε=0.001)", "Malliavin Fournié (Γ shortcut)"])].copy()
 rel["sd per path / |Greek|"] = np.sqrt(rel["var_per_path"]) / rel["benchmark"].abs()
 display(rel.pivot_table(index=["Greek", "Estimator"], columns="Product", values="sd per path / |Greek|"))
@@ -227,12 +227,12 @@ display(rel.pivot_table(index=["Greek", "Estimator"], columns="Product", values=
 # ---
 # ## 5c. How Hard Is the Gap to Set?
 #
-# Per-path variance of the Fournié estimators relative to standard Malliavin as a function of the gap $\ell$ in units of $S_0\sigma\sqrt{T}$, with the same $\ell$ for all three Greeks, Gaussian cutoff, $2 \times 10^6$ shared paths per product (`run_gap_sweep.py`, `results/gap_sweep.csv`). Below 1, localization needs fewer paths than standard Malliavin; per path it also costs about $2.8\times$ more time.
+# Per-path variance of the Fournié estimators relative to standard Malliavin as a function of the gap $\ell$ in units of $S_0\sigma\sqrt{T}$, with the same $\ell$ for all three Greeks, Gaussian cutoff, $2 \times 10^6$ shared paths per product, at $T = 1$ and $T = 1/252$ (`run_gap_sweep.py`, `results/gap_sweep.csv`). Below 1, localization needs fewer paths than standard Malliavin; per path it also costs about $2.8\times$ more time.
 #
 # - **Call, Delta and Vega**: no interior minimum. The variance keeps falling as $\ell \to 0$, where localization becomes the pathwise derivative, and levels off at the FDMC variance. Localization can match FDMC here, not beat it.
-# - **Call, Gamma**: a broad minimum near $\ell \approx S_0\sigma\sqrt{T}$ (1.2 at $T = 1$, 1.05 at $T = 1/12$), 23–28× below standard Malliavin. The default 0.5 is about 4× worse than the minimum.
-# - **Digital, Delta and Gamma**: worse than standard Malliavin at the default gaps (0.2 and 0.5). Near $\ell \approx S_0\sigma\sqrt{T}$ localization helps: Delta 1.5× fewer paths (not enough to pay for the extra time per path), Gamma 70× ($T = 1$) to 900× ($T = 1/12$) fewer. The Gamma minimum is narrow: with a Gaussian cutoff and $\ell = S_0\sigma\sqrt{T}$, $\psi''$ nearly cancels the Gamma weight path by path, and $\pm 10\%$ on $\ell$ costs a factor 3–10 at $T = 1/12$.
-# - **Digital, Vega**: best at small gaps (0.05–0.2), 9–30× below standard Malliavin.
+# - **Call, Gamma**: a broad minimum near $\ell \approx S_0\sigma\sqrt{T}$ (1.2 at $T = 1$, 1.0 at $T = 1/252$), 22–28× below standard Malliavin. The default 0.5 is about 4× worse than the minimum.
+# - **Digital, Delta and Gamma**: worse than standard Malliavin at the default gaps (0.2 and 0.5). Near $\ell \approx S_0\sigma\sqrt{T}$ localization helps: Delta 1.5× fewer paths (not enough to pay for the extra time per path), Gamma 72× ($T = 1$) to 6700× ($T = 1/252$) fewer. The Gamma minimum is narrow: with a Gaussian cutoff and $\ell = S_0\sigma\sqrt{T}$, $\psi''$ nearly cancels the Gamma weight path by path, more closely as $T$ shrinks; at $T = 1/252$, $\pm 5\%$ on $\ell$ costs a factor 12–30.
+# - **Digital, Vega**: best at small gaps (0.2 at $T = 1$, the smallest gap tried, 0.02, at $T = 1/252$), 9–130× below standard Malliavin. At $T = 1/252$ FDMC is itself 16× better than standard Malliavin for this Greek.
 # - **Knock-out** (not shown): the gap is capped at $(H-K)/2 \approx 0.13\, S_0\sigma\sqrt{T}$, far below where localization helps a jump, which is consistent with Section 5.
 
 # %%

@@ -189,6 +189,7 @@ All contracts are evaluated under institutional parameters ($S_0 = 100, r = 0.05
 | :--- | :--- | :--- | :--- | :--- |
 | **Vanilla European Call (1Y)** | $K = 100, T = 1.0$ | Continuous kink at $K$ ($C^0$) | Analytical | Black-Scholes-Merton closed form |
 | **Vanilla European Call (1M)** | $K = 100, T = 1/12$ | Sharp continuous kink ($C^0$) | Analytical | Black-Scholes-Merton ($T \to 0$ stress test) |
+| **Vanilla European Call / Digital (1D)** | $K = 100, T = 1/252$ | One trading day; replications (call) and gap sweep | Analytical | Black-Scholes-Merton closed forms |
 | **Digital European Call** | $K = 100, T = 1.0$ | Discontinuous step at $K$ ($C^{-1}$) | Analytical | Black-Scholes Cash-or-Nothing closed form |
 | **Call with terminal knock-out** | $K = 100, H = 105.25, T = 1.0$ | Payoff $(S_T - K)^+\mathbf{1}_{S_T \le H}$, checked at maturity only; kink at $K$, jump at $H$ | Analytical | $(S_T-K)^+ - (S_T-H)^+ - (H-K)\mathbf{1}_{S_T>H}$: two Black-Scholes calls and a digital |
 
