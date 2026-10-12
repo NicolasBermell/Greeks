@@ -203,10 +203,12 @@ All contracts are evaluated under institutional parameters ($S_0 = 100, r = 0.05
 Greeks/
 ├── Benchmarks/                           # Analytical closed-form reference engines
 │   ├── __init__.py
+│   ├── asian.py                          # Asian benchmark Greeks (conditional MC, with var/se)
 │   └── europeans.py                      # Black-Scholes analytical Greeks (call, digital, terminal knock-out)
 ├── Methods/                              # Greek estimation engines
 │   ├── __init__.py
 │   ├── Analytic/                         # Analytic pricer formulas
+│   │   ├── asians.py                     # Asian moment-matching Greeks
 │   │   └── europeans.py
 │   ├── Malliavin/                        # Malliavin calculus implementations
 │   │   ├── __init__.py
@@ -214,6 +216,7 @@ Greeks/
 │   │   └── malliavin_european_fournier.py # Fournié localization, general Gamma, fournier_bandwidths()
 │   ├── MonteCarlo/                       # Finite Difference Monte Carlo
 │   │   ├── __init__.py
+│   │   ├── FDMC_asian.py                 # Asian FDMC (standard and conditional MC), with var/se
 │   │   └── FDMC_european.py              # Central FDMC with Common Random Numbers (CRN)
 │   ├── payoffs.py                        # Payoffs and their a.e. derivatives, shared by all estimators
 │   └── sampling.py                       # default_rng(seed) paths, S_T, chunking, per-path variance / SE
@@ -229,6 +232,7 @@ Greeks/
 │   ├── FDMC_results.csv                  # FDMC runs across 10 scales x 3 eps values
 │   ├── malliavin_results.csv             # Standard Malliavin runs across 10 scales
 │   ├── malliavin_fournier_results.csv    # Fournié Option A runs across 10 scales
+│   ├── asian_*.csv                       # Asian benchmark, FDMC grid (with var/se) and moment matching
 │   ├── replications_raw.csv              # R = 100 independent runs per estimator, product and N
 │   ├── replications_summary.csv          # Bias, SE, RMSE, per-path variance, time per path
 │   ├── efficiency.csv                    # Variance x time per path, N and CPU ratios vs FDMC
@@ -237,14 +241,16 @@ Greeks/
 ├── tests/                                # Automated unit & regression test suite
 │   ├── test_estimators.py                # Per-path statistics, seeding, general Fournié Gamma
 │   ├── test_metrics.py                   # Metrics and convergence validation tests
+│   ├── test_asian_greeks.py              # Asian pricers and Greeks
 │   └── test_short_maturity_call.py       # 1-Month Call and decoupled bandwidth validation
-├── analysis_malliavin_vs_FDMC.ipynb      # Main comparative notebook
-├── analysis_european_call_1M.ipynb       # 1M Call and terminal knock-out notebook
-├── analysis_smoothing_functions.ipynb    # Cutoff function topology & exotic extensions
-├── generate_notebook.py                  # Procedural builder for comparative notebook
-├── generate_1M_call_analysis_notebook.py # Procedural builder for 1M Call & knock-out notebook
-├── generate_smoothing_analysis_notebook.py# Procedural builder for smoothing topology notebook
-├── execute_notebook.py                   # Automated headless notebook executor (nbclient)
+├── notebooks/                            # Notebook sources (jupytext percent .py), one per notebook
+├── analysis_malliavin_vs_FDMC.ipynb      # Main comparative notebook (executed, paired with notebooks/)
+├── analysis_european_call_1M.ipynb       # 1M call and terminal knock-out notebook
+├── analysis_smoothing_functions.ipynb    # Cutoff functions, bandwidths, Asian and basket prototypes
+├── analysis_asian_moment_matching_vs_FDMC.ipynb # Asian Greeks: moment matching vs FDMC
+├── analysis_FDMC.ipynb                   # FDMC-only analysis (single runs, eps sensitivity)
+├── run_notebooks.py                      # Executes notebooks/*.py and writes the paired .ipynb
+├── run_asian_benchmarks.py               # Asian moment matching, conditional MC benchmark, FDMC grid
 ├── run.py                                # End-to-end master pipeline entry point
 ├── run_all_greeks.py                     # Runner executing all Monte Carlo simulation scales
 ├── run_benchmarks.py                     # Runner computing analytical benchmarks
@@ -271,9 +277,9 @@ cd Greeks
 python3 -m venv .venv
 source .venv/bin/activate
 
-# Install requirements and package in editable mode
-pip install -r requirements.txt
-pip install -e .
+# Install requirements and package in editable mode (Python 3.10+)
+python -m pip install -r requirements.txt
+python -m pip install -e .
 ```
 
 ---
@@ -319,27 +325,22 @@ The number of paths for a tolerance is $N^* = z^2\,\text{Var}/\text{tol}^2$, so 
 
 ---
 
-### 5.5 Interactive Research Notebooks
+### 5.5 Notebooks
 
-The project includes three pre-executed, publication-grade Jupyter Notebooks:
+Each notebook is written as a plain Python file in `notebooks/` (jupytext percent format, cells marked with `# %%`), which is the version to edit and review. The executed `.ipynb` at the repository root is paired with it.
 
-1. **[analysis_malliavin_vs_FDMC.ipynb](analysis_malliavin_vs_FDMC.ipynb):**
-   - Error vs. $N$ from $R = 100$ independent runs, with bands and $1/\sqrt{N}$ extrapolation, for each product.
-   - Per-path variance, time per path, efficiency and $N^*$ for every estimator.
-   - Expected error under fixed time budgets, derived from variance and time per path.
-2. **[analysis_european_call_1M.ipynb](analysis_european_call_1M.ipynb):**
-   - Short-maturity ($T = 1/12$) call: Fournié decomposition, bandwidth sweeps, a Vega analysis and per-Greek bandwidths (general Gamma formula throughout).
-   - Call with terminal knock-out: the two ways to combine the cutoffs, the bias of $\psi_K + \psi_H$ for each cutoff family, and variance vs. bandwidth.
-3. **[analysis_smoothing_functions.ipynb](analysis_smoothing_functions.ipynb):**
-   - Mathematical topology of 5 smoothing cutoff functions (Gaussian, Cubic, Cosine, Quintic, Cauchy).
-   - Theoretical formulations and working prototypes for **Asian Options** (running path average) and **Multi-Asset Basket Options** (tensor factorization).
+1. **[analysis_malliavin_vs_FDMC.ipynb](analysis_malliavin_vs_FDMC.ipynb):** error vs. $N$ from $R = 100$ independent runs with bands and $1/\sqrt{N}$ extrapolation; per-path variance, time per path, efficiency and $N^*$; expected error under fixed time budgets.
+2. **[analysis_european_call_1M.ipynb](analysis_european_call_1M.ipynb):** the short-maturity ($T = 1/12$) call (Fournié decomposition, bandwidth sweeps, Vega analysis, per-Greek bandwidths) and the call with terminal knock-out (the two ways to combine the cutoffs, the bias of $\psi_K + \psi_H$, variance vs. bandwidth).
+3. **[analysis_smoothing_functions.ipynb](analysis_smoothing_functions.ipynb):** the 5 cutoff families, bandwidth grids, and prototypes for an Asian call (weight $W_{t_1}/(S_0\sigma t_1)$) and a 3-asset basket (weight $(L^{-1}\mathbf{1})\cdot W_T/(S_0 T)$), each checked against the pathwise Delta.
+4. **[analysis_asian_moment_matching_vs_FDMC.ipynb](analysis_asian_moment_matching_vs_FDMC.ipynb):** Asian Greeks by moment matching vs. FDMC against the conditional MC benchmark.
+5. **[analysis_FDMC.ipynb](analysis_FDMC.ipynb):** FDMC alone: $\varepsilon$ sensitivity and single-run budget/Pareto views.
 
-To rebuild and re-execute all notebooks headlessly:
+To execute all notebooks (or some of them) from their sources:
 ```bash
-python execute_notebook.py
-python generate_1M_call_analysis_notebook.py
-python generate_smoothing_analysis_notebook.py
+python run_notebooks.py
+python run_notebooks.py analysis_european_call_1M
 ```
+To edit a notebook interactively, open the `.ipynb` in Jupyter with the jupytext extension installed, or edit `notebooks/<name>.py` and run `jupytext --sync <name>.ipynb`.
 
 ---
 
