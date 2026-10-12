@@ -374,7 +374,7 @@ def malliavin_fournier_greeks_european_digital_call(
     )
 
 
-def malliavin_fournier_greeks_european_barrier_up_and_out_call(
+def malliavin_fournier_greeks_european_call_terminal_knockout(
     params: dict[str, float],
     N: int = 10000,
     seed: int = 42,

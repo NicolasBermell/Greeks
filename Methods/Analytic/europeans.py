@@ -130,9 +130,9 @@ def greeks_european_digital_call(params: dict[str, float]) -> dict[str, float]:
 
     return results
 
-# Barrier Option (European Terminal Barrier Up-and-Out Call: (S_T - K)^+ * 1_{S_T <= H})
-def price_barrier_up_and_out_call(S: float, K: float, T: float, r: float, q: float, sigma: float, H: float) -> float:
-    r"""Exact analytical price of a European Terminal Barrier Up-and-Out Call option.
+# Call with terminal knock-out: (S_T - K)^+ * 1_{S_T <= H}, checked at maturity only
+def price_call_terminal_knockout(S: float, K: float, T: float, r: float, q: float, sigma: float, H: float) -> float:
+    r"""Exact analytical price of a call with terminal knock-out.
 
     Payoff at maturity T:
         Payoff = (S_T - K)^+ \cdot \mathbf{1}_{S_T \le H}
@@ -147,7 +147,7 @@ def price_barrier_up_and_out_call(S: float, K: float, T: float, r: float, q: flo
         r (float): Annualized risk-free interest rate.
         q (float): Annualized continuous dividend yield.
         sigma (float): Annualized volatility ($\sigma > 0$).
-        H (float): Upper barrier level ($H > K$).
+        H (float): Knock-out level ($H > K$).
 
     Returns:
         float: Option price. Returns 0.0 if K >= H or if S <= 0, T <= 0, sigma <= 0.
@@ -167,8 +167,8 @@ def price_barrier_up_and_out_call(S: float, K: float, T: float, r: float, q: flo
     return float(term1 - term2)
 
 
-def delta_barrier_up_and_out_call(S: float, K: float, T: float, r: float, q: float, sigma: float, H: float) -> float:
-    r"""Exact analytical Delta ($\partial V / \partial S$) for European Terminal Barrier Up-and-Out Call.
+def delta_call_terminal_knockout(S: float, K: float, T: float, r: float, q: float, sigma: float, H: float) -> float:
+    r"""Exact analytical Delta ($\partial V / \partial S$) for the call with terminal knock-out.
 
     Delta = e^{-qT} [\Phi(d_1(S, K)) - \Phi(d_1(S, H))] - \frac{(H - K) e^{-rT} \phi(d_2(S, H))}{S \sigma \sqrt{T}}
     """
@@ -187,8 +187,8 @@ def delta_barrier_up_and_out_call(S: float, K: float, T: float, r: float, q: flo
     return float(delta)
 
 
-def gamma_barrier_up_and_out_call(S: float, K: float, T: float, r: float, q: float, sigma: float, H: float) -> float:
-    r"""Exact analytical Gamma ($\partial^2 V / \partial S^2$) for European Terminal Barrier Up-and-Out Call.
+def gamma_call_terminal_knockout(S: float, K: float, T: float, r: float, q: float, sigma: float, H: float) -> float:
+    r"""Exact analytical Gamma ($\partial^2 V / \partial S^2$) for the call with terminal knock-out.
 
     Gamma = \frac{e^{-qT}\phi(d_1(S, K))}{S \sigma \sqrt{T}}
           - \frac{e^{-qT}\phi(d_1(S, H))}{S \sigma \sqrt{T}}
@@ -210,8 +210,8 @@ def gamma_barrier_up_and_out_call(S: float, K: float, T: float, r: float, q: flo
     return float(gamma)
 
 
-def vega_barrier_up_and_out_call(S: float, K: float, T: float, r: float, q: float, sigma: float, H: float) -> float:
-    r"""Exact analytical Vega ($\partial V / \partial \sigma$) for European Terminal Barrier Up-and-Out Call.
+def vega_call_terminal_knockout(S: float, K: float, T: float, r: float, q: float, sigma: float, H: float) -> float:
+    r"""Exact analytical Vega ($\partial V / \partial \sigma$) for the call with terminal knock-out.
 
     Vega = S e^{-qT} \sqrt{T} \phi(d_1(S, K))
          - S e^{-qT} \sqrt{T} \phi(d_1(S, H))
@@ -233,8 +233,8 @@ def vega_barrier_up_and_out_call(S: float, K: float, T: float, r: float, q: floa
     return float(vega)
 
 
-def greeks_european_barrier_up_and_out_call(params: dict[str, float]) -> dict[str, float]:
-    r"""Computes the Greeks of a terminal barrier up-and-out call option using exact analytical formulas.
+def greeks_european_call_terminal_knockout(params: dict[str, float]) -> dict[str, float]:
+    r"""Computes the Greeks of a call with terminal knock-out using exact analytical formulas.
 
     Args:
         params (dict[str, float]): Dictionary containing option and market parameters:
@@ -244,7 +244,7 @@ def greeks_european_barrier_up_and_out_call(params: dict[str, float]) -> dict[st
             - "r" (float): Annualized risk-free interest rate in decimal form (e.g., 0.05 for 5%).
             - "q" (float): Annualized continuous dividend yield in decimal form (e.g., 0.02 for 2%).
             - "sigma" (float): Annualized volatility in decimal form ($\sigma > 0$, e.g., 0.20 for 20%).
-            - "H" (float): Terminal barrier level ($H > K$).
+            - "H" (float): Knock-out level ($H > K$), checked at maturity.
 
     Returns:
         dict[str, float]: Dictionary containing computed analytical Greeks:
@@ -263,7 +263,7 @@ def greeks_european_barrier_up_and_out_call(params: dict[str, float]) -> dict[st
     )
 
     return {
-        "delta": delta_barrier_up_and_out_call(S0, K, T, r, q, sigma, H),
-        "gamma": gamma_barrier_up_and_out_call(S0, K, T, r, q, sigma, H),
-        "vega": vega_barrier_up_and_out_call(S0, K, T, r, q, sigma, H),
+        "delta": delta_call_terminal_knockout(S0, K, T, r, q, sigma, H),
+        "gamma": gamma_call_terminal_knockout(S0, K, T, r, q, sigma, H),
+        "vega": vega_call_terminal_knockout(S0, K, T, r, q, sigma, H),
     }

@@ -11,17 +11,17 @@ from products import (
 from Benchmarks.europeans import (
     benchmark_greeks_european_call,
     benchmark_greeks_european_digital,
-    benchmark_greeks_european_barrier_up_and_out,
+    benchmark_greeks_european_call_terminal_knockout,
 )
 from Methods import payoffs
 from Methods.sampling import generate_paths, estimate_from_samples, simulate_terminal_spot
-from Methods.MonteCarlo.FDMC_european import FDMC_geeks_european_call
+from Methods.MonteCarlo.FDMC_european import FDMC_greeks_european_call
 from Methods.Malliavin import (
     malliavin_greeks_european_call,
     malliavin_samples_european,
     malliavin_fournier_greeks_european_call,
     malliavin_fournier_greeks_european_digital_call,
-    malliavin_fournier_greeks_european_barrier_up_and_out_call,
+    malliavin_fournier_greeks_european_call_terminal_knockout,
 )
 
 GREEKS = ("delta", "gamma", "vega")
@@ -57,7 +57,7 @@ class TestPerPathStatistics(unittest.TestCase):
         def price(s0, sig):
             return np.exp(-r * T) * np.mean(payoffs.call(simulate_terminal_spot(s0, T, r, q, sig, W_T), params))
 
-        res = FDMC_geeks_european_call(params, eps=eps, paths=W_T)
+        res = FDMC_greeks_european_call(params, eps=eps, paths=W_T)
         self.assertAlmostEqual(res["delta"], (price(S0 + eps, sigma) - price(S0 - eps, sigma)) / (2 * eps), places=10)
         self.assertAlmostEqual(
             res["gamma"], (price(S0 + eps, sigma) - 2 * price(S0, sigma) + price(S0 - eps, sigma)) / eps**2, places=6
@@ -100,9 +100,9 @@ class TestFournierGamma(unittest.TestCase):
 
     def test_terminal_knockout_unbiased_for_every_cutoff(self):
         params = example_european_call_terminal_knockout
-        bench = benchmark_greeks_european_barrier_up_and_out(params)
+        bench = benchmark_greeks_european_call_terminal_knockout(params)
         for cutoff in ("gaussian", "quintic", "cauchy"):
-            res = malliavin_fournier_greeks_european_barrier_up_and_out_call(
+            res = malliavin_fournier_greeks_european_call_terminal_knockout(
                 params, N=self.N, seed=8, cutoff_type=cutoff, return_stats=True
             )
             self._assert_unbiased(res, bench)
@@ -110,18 +110,18 @@ class TestFournierGamma(unittest.TestCase):
     def test_terminal_knockout_sum_cutoff_bias(self):
         """psi_K + psi_H: biased with the gaussian (psi(K) != 1), identical to the union for compact cutoffs."""
         params = example_european_call_terminal_knockout
-        bench = benchmark_greeks_european_barrier_up_and_out(params)
+        bench = benchmark_greeks_european_call_terminal_knockout(params)
         kw = dict(N=self.N, seed=9, return_stats=True)
-        biased = malliavin_fournier_greeks_european_barrier_up_and_out_call(
+        biased = malliavin_fournier_greeks_european_call_terminal_knockout(
             params, cutoff_type="gaussian", cutoff_combination="sum", **kw
         )
         self.assertGreater(abs(biased["delta"] - bench["delta"]), 50 * biased["delta_se"])
         self.assertGreater(abs(biased["gamma"] - bench["gamma"]), 50 * biased["gamma_se"])
 
-        summed = malliavin_fournier_greeks_european_barrier_up_and_out_call(
+        summed = malliavin_fournier_greeks_european_call_terminal_knockout(
             params, cutoff_type="quintic", cutoff_combination="sum", **kw
         )
-        union = malliavin_fournier_greeks_european_barrier_up_and_out_call(params, cutoff_type="quintic", **kw)
+        union = malliavin_fournier_greeks_european_call_terminal_knockout(params, cutoff_type="quintic", **kw)
         for g in GREEKS:
             self.assertAlmostEqual(summed[g], union[g], places=12)
 

@@ -3,7 +3,7 @@
 from Methods.Malliavin.malliavin_european_standard import (
     compute_malliavin_weights,
     generate_paths,
-    malliavin_greeks_european_barrier_up_and_out_call,
+    malliavin_greeks_european_call_terminal_knockout,
     malliavin_greeks_european_call,
     malliavin_greeks_european_digital_call,
     malliavin_samples_european,
@@ -12,7 +12,7 @@ from Methods.Malliavin.malliavin_european_standard import (
 from Methods.Malliavin.malliavin_european_fournier import (
     fournier_bandwidths,
     get_cutoff,
-    malliavin_fournier_greeks_european_barrier_up_and_out_call,
+    malliavin_fournier_greeks_european_call_terminal_knockout,
     malliavin_fournier_greeks_european_call,
     malliavin_fournier_greeks_european_digital_call,
     malliavin_fournier_samples_european_call,
@@ -28,7 +28,7 @@ __all__ = [
     "malliavin_samples_european",
     "malliavin_greeks_european_call",
     "malliavin_greeks_european_digital_call",
-    "malliavin_greeks_european_barrier_up_and_out_call",
+    "malliavin_greeks_european_call_terminal_knockout",
     # Fournié Localized Malliavin (European)
     "fournier_bandwidths",
     "get_cutoff",
@@ -37,5 +37,5 @@ __all__ = [
     "malliavin_fournier_samples_european_call_terminal_knockout",
     "malliavin_fournier_greeks_european_call",
     "malliavin_fournier_greeks_european_digital_call",
-    "malliavin_fournier_greeks_european_barrier_up_and_out_call",
+    "malliavin_fournier_greeks_european_call_terminal_knockout",
 ]

@@ -4,3 +4,7 @@ scipy
 seaborn
 matplotlib
 quantlib
+nbformat
+nbclient
+ipykernel
+jupytext

@@ -1,41 +1,51 @@
 from pandas import DataFrame, concat
 from Methods.MonteCarlo.FDMC_european import (
-    FDMC_geeks_european_barrier_up_and_out_call,
-    FDMC_geeks_european_call,
-    FDMC_geeks_european_digital_call,
+    FDMC_greeks_european_call_terminal_knockout,
+    FDMC_greeks_european_call,
+    FDMC_greeks_european_digital_call,
 )
 from Methods.Malliavin.malliavin_european_standard import (
-    malliavin_greeks_european_barrier_up_and_out_call,
+    malliavin_greeks_european_call_terminal_knockout,
     malliavin_greeks_european_call,
     malliavin_greeks_european_digital_call,
 )
 from Methods.Malliavin.malliavin_european_fournier import (
-    malliavin_fournier_greeks_european_barrier_up_and_out_call,
+    malliavin_fournier_greeks_european_call_terminal_knockout,
     malliavin_fournier_greeks_european_call,
     malliavin_fournier_greeks_european_digital_call,
 )
-from Methods.sampling import GREEKS
-from products import *
-from config import *
+from Methods.sampling import GREEK_STAT_COLUMNS
+from products import (
+    example_european_call_ATM,
+    example_european_call_terminal_knockout,
+    example_european_digital_ATM,
+)
+from config import (
+    FDMC_EPS_ARRAY,
+    FDMC_N_SIMS_ARRAY,
+    FDMC_RESULTS_FILE,
+    FDMC_SEED,
+    MALLIAVIN_FOURNIER_CUTOFF_TYPE,
+    MALLIAVIN_FOURNIER_RESULTS_FILE,
+    MALLIAVIN_N_SIMS_ARRAY,
+    MALLIAVIN_RESULTS_FILE,
+    MALLIAVIN_SEED,
+)
 
 # (product params, FDMC fn, standard Malliavin fn, Fournié fn). Fournié uses the default
 # bandwidths of fournier_bandwidths(params), capped at (H - K) / 2 for the knock-out.
 EUROPEAN_PRODUCTS = [
-    (example_european_call_ATM, FDMC_geeks_european_call, malliavin_greeks_european_call,
+    (example_european_call_ATM, FDMC_greeks_european_call, malliavin_greeks_european_call,
      malliavin_fournier_greeks_european_call),
-    (example_european_digital_ATM, FDMC_geeks_european_digital_call, malliavin_greeks_european_digital_call,
+    (example_european_digital_ATM, FDMC_greeks_european_digital_call, malliavin_greeks_european_digital_call,
      malliavin_fournier_greeks_european_digital_call),
-    (example_european_call_terminal_knockout, FDMC_geeks_european_barrier_up_and_out_call,
-     malliavin_greeks_european_barrier_up_and_out_call,
-     malliavin_fournier_greeks_european_barrier_up_and_out_call),
+    (example_european_call_terminal_knockout, FDMC_greeks_european_call_terminal_knockout,
+     malliavin_greeks_european_call_terminal_knockout,
+     malliavin_fournier_greeks_european_call_terminal_knockout),
 ]
 
-# Each Greek is followed by its per-path variance and standard error.
-GREEK_COLUMNS = [c for g in GREEKS for c in (g, f"{g}_var", f"{g}_se")]
-
-
 def _results_frame(rows: dict[str, dict[str, float]]) -> DataFrame:
-    df = DataFrame(rows).T[GREEK_COLUMNS]
+    df = DataFrame(rows).T[GREEK_STAT_COLUMNS]
     df.index.name = "Product"
     return df
 

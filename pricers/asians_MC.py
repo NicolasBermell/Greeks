@@ -69,6 +69,26 @@ def _simulate_arithmetic_average(
     return A
 
 
+# Per-path (undiscounted) payoffs. The price functions below are their discounted means; the
+# finite-difference Greeks use the per-path values to get the per-path variance.
+
+def asian_call_payoffs(S0, K, T, r, q, sigma, frequency=12, seed=42, N=10000, paths=None) -> np.ndarray:
+    A = _simulate_arithmetic_average(S0, T, r, q, sigma, frequency, seed, N, paths)
+    return np.maximum(A - K, 0.0)
+
+
+def asian_digital_call_payoffs(S0, K, T, r, q, sigma, frequency=12, seed=42, N=10000, paths=None) -> np.ndarray:
+    A = _simulate_arithmetic_average(S0, T, r, q, sigma, frequency, seed, N, paths)
+    return (A > K).astype(float)
+
+
+def asian_barrier_up_and_out_call_payoffs(S0, K, T, r, q, sigma, H, frequency=12, seed=42, N=10000, paths=None) -> np.ndarray:
+    A = _simulate_arithmetic_average(S0, T, r, q, sigma, frequency, seed, N, paths)
+    if K >= H:
+        return np.zeros_like(A)
+    return np.where((A >= K) & (A <= H), A - K, 0.0)
+
+
 def MC_asian_call_option(
     S0: float,
     K: float,
@@ -82,9 +102,7 @@ def MC_asian_call_option(
     paths: np.ndarray | None = None,
 ) -> float:
     """Computes the price of a discrete arithmetic average Asian Call option using Monte Carlo."""
-    A = _simulate_arithmetic_average(S0, T, r, q, sigma, frequency, seed, N, paths)
-    payoffs = np.maximum(A - K, 0.0)
-    return float(np.mean(payoffs) * np.exp(-r * T))
+    return float(np.mean(asian_call_payoffs(S0, K, T, r, q, sigma, frequency, seed, N, paths)) * np.exp(-r * T))
 
 
 def MC_asian_digital_call_option(
@@ -100,9 +118,7 @@ def MC_asian_digital_call_option(
     paths: np.ndarray | None = None,
 ) -> float:
     """Computes the price of a discrete arithmetic average Digital Asian Call (Cash-or-Nothing)."""
-    A = _simulate_arithmetic_average(S0, T, r, q, sigma, frequency, seed, N, paths)
-    payoffs = (A > K).astype(float)
-    return float(np.mean(payoffs) * np.exp(-r * T))
+    return float(np.mean(asian_digital_call_payoffs(S0, K, T, r, q, sigma, frequency, seed, N, paths)) * np.exp(-r * T))
 
 
 def MC_asian_barrier_up_and_out_call_option(
@@ -119,10 +135,7 @@ def MC_asian_barrier_up_and_out_call_option(
     paths: np.ndarray | None = None,
 ) -> float:
     """Computes the price of a discrete arithmetic average Barrier Up-and-Out Call option."""
-    if K >= H:
-        return 0.0
-    A = _simulate_arithmetic_average(S0, T, r, q, sigma, frequency, seed, N, paths)
-    payoffs = np.where((A >= K) & (A <= H), A - K, 0.0)
+    payoffs = asian_barrier_up_and_out_call_payoffs(S0, K, T, r, q, sigma, H, frequency, seed, N, paths)
     return float(np.mean(payoffs) * np.exp(-r * T))
 
 
@@ -221,6 +234,33 @@ def _cond_digital_payoff(
     return res
 
 
+# Per-path conditional expectations E[payoff | F_{t_{m-1}}] (undiscounted).
+
+def conditional_asian_call_payoffs(S0, K, T, r, q, sigma, frequency=12, seed=42, N=10000, paths=None) -> np.ndarray:
+    m = int(frequency)
+    Sigma_prev, S_last, dt = _simulate_conditional_averaging_state(S0, T, r, q, sigma, frequency, seed, N, paths)
+    return _cond_call_payoff(S_last, m * K - Sigma_prev, dt, r, q, sigma, m)
+
+
+def conditional_asian_digital_call_payoffs(S0, K, T, r, q, sigma, frequency=12, seed=42, N=10000, paths=None) -> np.ndarray:
+    m = int(frequency)
+    Sigma_prev, S_last, dt = _simulate_conditional_averaging_state(S0, T, r, q, sigma, frequency, seed, N, paths)
+    return _cond_digital_payoff(S_last, m * K - Sigma_prev, dt, r, q, sigma)
+
+
+def conditional_asian_barrier_up_and_out_call_payoffs(S0, K, T, r, q, sigma, H, frequency=12, seed=42, N=10000, paths=None) -> np.ndarray:
+    m = int(frequency)
+    Sigma_prev, S_last, dt = _simulate_conditional_averaging_state(S0, T, r, q, sigma, frequency, seed, N, paths)
+    if K >= H:
+        return np.zeros_like(S_last)
+    K_star = m * K - Sigma_prev
+    H_star = m * H - Sigma_prev
+    call_K = _cond_call_payoff(S_last, K_star, dt, r, q, sigma, m)
+    call_H = _cond_call_payoff(S_last, H_star, dt, r, q, sigma, m)
+    dig_H = _cond_digital_payoff(S_last, H_star, dt, r, q, sigma)
+    return np.maximum(call_K - call_H - (H - K) * dig_H, 0.0)
+
+
 def conditional_MC_asian_call_option(
     S0: float,
     K: float,
@@ -234,11 +274,7 @@ def conditional_MC_asian_call_option(
     paths: np.ndarray | None = None,
 ) -> float:
     """Computes the price of a Vanilla Asian Call using Conditional Monte Carlo (smooth Black-Scholes expectation)."""
-    m = int(frequency)
-    Sigma_prev, S_last, dt = _simulate_conditional_averaging_state(S0, T, r, q, sigma, frequency, seed, N, paths)
-    K_star = m * K - Sigma_prev
-    c_pay = _cond_call_payoff(S_last, K_star, dt, r, q, sigma, m)
-    return float(np.mean(c_pay) * np.exp(-r * T))
+    return float(np.mean(conditional_asian_call_payoffs(S0, K, T, r, q, sigma, frequency, seed, N, paths)) * np.exp(-r * T))
 
 
 def conditional_MC_asian_digital_call_option(
@@ -254,11 +290,7 @@ def conditional_MC_asian_digital_call_option(
     paths: np.ndarray | None = None,
 ) -> float:
     """Computes the price of a Digital Asian Call using Conditional Monte Carlo (smooth Gaussian CDF expectation)."""
-    m = int(frequency)
-    Sigma_prev, S_last, dt = _simulate_conditional_averaging_state(S0, T, r, q, sigma, frequency, seed, N, paths)
-    K_star = m * K - Sigma_prev
-    d_pay = _cond_digital_payoff(S_last, K_star, dt, r, q, sigma)
-    return float(np.mean(d_pay) * np.exp(-r * T))
+    return float(np.mean(conditional_asian_digital_call_payoffs(S0, K, T, r, q, sigma, frequency, seed, N, paths)) * np.exp(-r * T))
 
 
 def conditional_MC_asian_barrier_up_and_out_call_option(
@@ -275,17 +307,6 @@ def conditional_MC_asian_barrier_up_and_out_call_option(
     paths: np.ndarray | None = None,
 ) -> float:
     """Computes the price of a Barrier Up-and-Out Asian Call using Conditional Monte Carlo."""
-    if K >= H:
-        return 0.0
-    m = int(frequency)
-    Sigma_prev, S_last, dt = _simulate_conditional_averaging_state(S0, T, r, q, sigma, frequency, seed, N, paths)
-    K_star = m * K - Sigma_prev
-    H_star = m * H - Sigma_prev
-
-    call_K = _cond_call_payoff(S_last, K_star, dt, r, q, sigma, m)
-    call_H = _cond_call_payoff(S_last, H_star, dt, r, q, sigma, m)
-    dig_H = _cond_digital_payoff(S_last, H_star, dt, r, q, sigma)
-
-    b_pay = np.maximum(call_K - call_H - (H - K) * dig_H, 0.0)
-    return float(np.mean(b_pay) * np.exp(-r * T))
+    payoffs = conditional_asian_barrier_up_and_out_call_payoffs(S0, K, T, r, q, sigma, H, frequency, seed, N, paths)
+    return float(np.mean(payoffs) * np.exp(-r * T))
 

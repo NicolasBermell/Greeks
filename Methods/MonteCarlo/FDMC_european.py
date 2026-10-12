@@ -49,7 +49,7 @@ def _FDMC_greeks(payoff_fn, params, eps, N, seed, paths, return_stats) -> dict[s
 # ==============================================================================
 
 
-def FDMC_geeks_european_call(
+def FDMC_greeks_european_call(
     params, eps: float = 1e-6, N: int = 10000, seed: int = 42, paths: np.ndarray | None = None,
     return_stats: bool = False,
 ) -> dict[str, float]:
@@ -65,7 +65,7 @@ def FDMC_geeks_european_call(
 # ==============================================================================
 
 
-def FDMC_geeks_european_digital_call(
+def FDMC_greeks_european_digital_call(
     params, eps: float = 1e-6, N: int = 10000, seed: int = 42, paths: np.ndarray | None = None,
     return_stats: bool = False,
 ) -> dict[str, float]:
@@ -81,7 +81,7 @@ def FDMC_geeks_european_digital_call(
 # ==============================================================================
 
 
-def FDMC_geeks_european_barrier_up_and_out_call(
+def FDMC_greeks_european_call_terminal_knockout(
     params, eps: float = 1e-6, N: int = 10000, seed: int = 42, paths: np.ndarray | None = None,
     return_stats: bool = False,
 ) -> dict[str, float]:

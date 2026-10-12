@@ -15,10 +15,8 @@ from config import (
 from products import asian_products
 from Benchmarks.asian import benchmark_all_asian
 from Methods.Analytic.asians import compute_all_asian_moment_matching_greeks
-from Methods.MonteCarlo.FDMC_asian import (
-    compute_all_asian_FDMC_greeks,
-    compute_all_asian_conditional_FDMC_greeks,
-)
+from Methods.MonteCarlo.FDMC_asian import compute_all_asian_FDMC_greeks
+from Methods.sampling import GREEK_STAT_COLUMNS
 from pricers.asians_MC import generate_asian_paths
 
 
@@ -60,10 +58,10 @@ def run_asian_multi_N_FDMC(
             print(f"  Running Standard FDMC N={N:,}, eps={eps}...")
             current_results = {}
             for name, params in asian_products.items():
-                greeks = compute_all_asian_FDMC_greeks(params, eps=eps, N=N, seed=seed, paths=paths)
+                greeks = compute_all_asian_FDMC_greeks(params, eps=eps, N=N, seed=seed, paths=paths, return_stats=True)
                 current_results[name] = greeks
 
-            df = DataFrame(current_results).T
+            df = DataFrame(current_results).T[GREEK_STAT_COLUMNS]
             df.index.name = "Product"
             df["Method"] = "FDMC"
             df["N"] = N

@@ -21,6 +21,9 @@ import numpy as np
 
 GREEKS = ("delta", "gamma", "vega")
 
+# Column order for result CSVs: each Greek followed by its per-path variance and standard error.
+GREEK_STAT_COLUMNS = [c for g in GREEKS for c in (g, f"{g}_var", f"{g}_se")]
+
 # Paths per block when N is large; keeps memory bounded (FDMC holds ~10 arrays per block).
 DEFAULT_CHUNK_SIZE = 2_000_000
 

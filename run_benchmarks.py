@@ -2,7 +2,7 @@ from pandas import DataFrame
 from Benchmarks.europeans import (
     benchmark_greeks_european_call,
     benchmark_greeks_european_digital,
-    benchmark_greeks_european_barrier_up_and_out,
+    benchmark_greeks_european_call_terminal_knockout,
 )
 from products import (
     example_european_call_ATM,
@@ -14,7 +14,7 @@ from products import (
 def benchmark_all_european() -> DataFrame:
     benchmark_european_call = benchmark_greeks_european_call(example_european_call_ATM)
     benchmark_european_digital = benchmark_greeks_european_digital(example_european_digital_ATM)
-    benchmark_call_terminal_knockout = benchmark_greeks_european_barrier_up_and_out(
+    benchmark_call_terminal_knockout = benchmark_greeks_european_call_terminal_knockout(
         example_european_call_terminal_knockout
     )
 

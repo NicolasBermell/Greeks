@@ -204,7 +204,7 @@ def is_catastrophic_eps(
 
     Catastrophic regimes include:
     1. Estimator Collapse to Zero: |FDMC| < 1e-7 while analytical benchmark is non-zero
-       (e.g., fine eps for discontinuous digital/barrier where zero simulated paths cross the strike).
+       (e.g., fine eps for a discontinuous digital or knock-out where zero simulated paths cross the strike).
     2. Gamma Roundoff Explosion / Floating-Point Cancellation: Central finite differences
        dividing by eps^2 suffer catastrophic cancellation or variance explosion for eps < 0.01
        (and eps < 0.1 for discontinuous options).
@@ -871,7 +871,7 @@ def compute_smoothing_and_gap_grid(
     Args:
         params: Option parameter dictionary (S0, K, T, r, q, sigma).
         benchmarks: Dictionary of analytical benchmark values {delta: ..., gamma: ..., vega: ...}.
-        contract_type: 'call', 'digital', or 'barrier'.
+        contract_type: 'call', 'digital', or 'knock-out' ('barrier' is accepted as an alias).
         cutoff_types: List of cutoff smoothing functions.
         deltas: List of smoothing half-widths delta from the strike.
         N: Number of simulations for point estimate.
@@ -884,7 +884,7 @@ def compute_smoothing_and_gap_grid(
     """
     from Methods.sampling import generate_paths
     from Methods.Malliavin.malliavin_european_fournier import (
-        malliavin_fournier_greeks_european_barrier_up_and_out_call,
+        malliavin_fournier_greeks_european_call_terminal_knockout,
         malliavin_fournier_greeks_european_call,
         malliavin_fournier_greeks_european_digital_call,
     )
@@ -897,8 +897,8 @@ def compute_smoothing_and_gap_grid(
     fn_map = {
         "call": malliavin_fournier_greeks_european_call,
         "digital": malliavin_fournier_greeks_european_digital_call,
-        "barrier": malliavin_fournier_greeks_european_barrier_up_and_out_call,
-        "knock-out": malliavin_fournier_greeks_european_barrier_up_and_out_call,
+        "barrier": malliavin_fournier_greeks_european_call_terminal_knockout,
+        "knock-out": malliavin_fournier_greeks_european_call_terminal_knockout,
     }
     calc_fn = fn_map.get(contract_type.strip().lower(), malliavin_fournier_greeks_european_call)
 

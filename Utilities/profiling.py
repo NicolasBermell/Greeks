@@ -6,15 +6,15 @@ import numpy as np
 import pandas as pd
 
 from Methods.MonteCarlo.FDMC_european import (
-    FDMC_geeks_european_barrier_up_and_out_call,
-    FDMC_geeks_european_call,
-    FDMC_geeks_european_digital_call,
+    FDMC_greeks_european_call_terminal_knockout,
+    FDMC_greeks_european_call,
+    FDMC_greeks_european_digital_call,
 )
 from Methods.Malliavin import (
-    malliavin_greeks_european_barrier_up_and_out_call,
+    malliavin_greeks_european_call_terminal_knockout,
     malliavin_greeks_european_call,
     malliavin_greeks_european_digital_call,
-    malliavin_fournier_greeks_european_barrier_up_and_out_call,
+    malliavin_fournier_greeks_european_call_terminal_knockout,
     malliavin_fournier_greeks_european_call,
     malliavin_fournier_greeks_european_digital_call,
 )
@@ -27,10 +27,10 @@ from config import FDMC_FIXED_EPS
 
 
 PRODUCT_FN_MAP = {
-    "Call European ATM": (FDMC_geeks_european_call, example_european_call_ATM),
-    "Digital European ATM": (FDMC_geeks_european_digital_call, example_european_digital_ATM),
+    "Call European ATM": (FDMC_greeks_european_call, example_european_call_ATM),
+    "Digital European ATM": (FDMC_greeks_european_digital_call, example_european_digital_ATM),
     "Call with terminal knock-out": (
-        FDMC_geeks_european_barrier_up_and_out_call,
+        FDMC_greeks_european_call_terminal_knockout,
         example_european_call_terminal_knockout,
     ),
 }
@@ -39,7 +39,7 @@ MALLIAVIN_PRODUCT_FN_MAP = {
     "Call European ATM": (malliavin_greeks_european_call, example_european_call_ATM),
     "Digital European ATM": (malliavin_greeks_european_digital_call, example_european_digital_ATM),
     "Call with terminal knock-out": (
-        malliavin_greeks_european_barrier_up_and_out_call,
+        malliavin_greeks_european_call_terminal_knockout,
         example_european_call_terminal_knockout,
     ),
 }
@@ -48,7 +48,7 @@ FOURNIER_PRODUCT_FN_MAP = {
     "Call European ATM": (malliavin_fournier_greeks_european_call, example_european_call_ATM),
     "Digital European ATM": (malliavin_fournier_greeks_european_digital_call, example_european_digital_ATM),
     "Call with terminal knock-out": (
-        malliavin_fournier_greeks_european_barrier_up_and_out_call,
+        malliavin_fournier_greeks_european_call_terminal_knockout,
         example_european_call_terminal_knockout,
     ),
 }

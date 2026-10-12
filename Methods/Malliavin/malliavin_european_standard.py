@@ -28,7 +28,7 @@ where the exact Malliavin weights are:
 Key Advantages over Finite Difference Monte Carlo (FDMC):
 - Zero Truncation Bias: Bias is identically zero (O(eps^2) = 0).
 - No Catastrophic Cancellation: Eliminates the 1/eps and 1/eps^2 variance explosion
-  and floating-point cancellation for discontinuous payoffs (Digital and Barrier options).
+  and floating-point cancellation for discontinuous payoffs (digital and terminal knock-out).
 - Computational Efficiency: Delta, Gamma, and Vega are evaluated simultaneously in a
   single simulation pass (1 path generation, 1 S_T evaluation) without perturbing spots.
 """
@@ -154,7 +154,7 @@ def malliavin_greeks_european_digital_call(
 # ==============================================================================
 
 
-def malliavin_greeks_european_barrier_up_and_out_call(
+def malliavin_greeks_european_call_terminal_knockout(
     params: dict[str, float],
     N: int = 10000,
     seed: int = 42,
