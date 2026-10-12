@@ -19,6 +19,16 @@ example_european_call_1M = {
     "name": "Call European 1M"
 }
 
+example_european_digital_1M = {
+    "S0": 100,
+    "K": 100,
+    "T": 1 / 12,
+    "r": 0.05,
+    "q": 0.02,
+    "sigma": 0.20,
+    "name": "Digital European 1M"
+}
+
 example_european_digital_ATM = {
     "S0": 100,
     "K": 100,

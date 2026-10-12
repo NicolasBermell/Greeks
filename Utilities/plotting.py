@@ -650,3 +650,70 @@ def plot_replication_error_vs_N(
     )
     plt.tight_layout()
     return fig
+
+
+# Colors identify the maturity (not a method); line style and marker repeat the encoding.
+GAP_SWEEP_STYLES = {
+    1.0: {"color": "#2a78d6", "linestyle": "-", "marker": "o", "label": "T = 1"},
+    1.0 / 12.0: {"color": "#d55181", "linestyle": "--", "marker": "s", "label": "T = 1/12"},
+}
+
+
+def plot_gap_sweep(sweep_df: pd.DataFrame, greeks: list[str] = ["delta", "gamma", "vega"]) -> plt.Figure:
+    """Per-path variance of Fournié relative to standard Malliavin vs the gap l / (S0 sigma sqrt(T)).
+
+    One row per payoff (call, digital), one column per Greek, one curve per maturity. Below 1,
+    localization needs fewer paths than standard Malliavin. The dotted lines are FDMC (eps = 0.01)
+    on the same scale, the vertical line the default gap for that Greek, and the filled marker
+    the minimum of each curve.
+    """
+    from Methods.Malliavin.malliavin_european_fournier import BANDWIDTH_MULTIPLIERS
+
+    families = [("Call", "Call European"), ("Digital", "Digital European")]
+    fig, axes = plt.subplots(len(families), len(greeks), figsize=(18, 10), squeeze=False)
+
+    for row, (family, prefix) in enumerate(families):
+        fam = sweep_df[sweep_df["Product"].str.startswith(prefix)]
+        for col, greek in enumerate(greeks):
+            ax = axes[row, col]
+            g = fam[fam["Greek"] == greek]
+            four = g[g["Estimator"] == "Malliavin Fournié"]
+            y_lo, y_hi = four["var_vs_standard"].min(), max(four["var_vs_standard"].max(), 1.0)
+            y_lo, y_hi = min(y_lo, 1.0) / 2.0, y_hi * 2.0
+
+            for T, style in GAP_SWEEP_STYLES.items():
+                curve = four[np.isclose(four["T"], T)].sort_values("multiplier")
+                if curve.empty:
+                    continue
+                ax.plot(curve["multiplier"], curve["var_vs_standard"], color=style["color"],
+                        linestyle=style["linestyle"], marker=style["marker"], markersize=5, label=style["label"])
+                best = curve.loc[curve["var_vs_standard"].idxmin()]
+                ax.plot(best["multiplier"], best["var_vs_standard"], marker=style["marker"], markersize=11,
+                        color=style["color"], markeredgecolor="white", markeredgewidth=1.5, zorder=5)
+                ax.annotate(f"{best['multiplier']:g}", (best["multiplier"], best["var_vs_standard"]),
+                            textcoords="offset points", xytext=(0, -16) if T == 1.0 else (0, 9),
+                            ha="center", fontsize=9, color=style["color"])
+
+                fdmc = g[np.isclose(g["T"], T) & g["Estimator"].str.startswith("FDMC")]["var_vs_standard"].iloc[0]
+                if y_lo <= fdmc <= y_hi:
+                    ax.axhline(fdmc, color=style["color"], linestyle=":", linewidth=1.4, alpha=0.9,
+                               label=f"FDMC ε=0.01, {style['label']}")
+                else:
+                    ax.annotate(f"FDMC, {style['label']}: {fdmc:.2g}× (off scale)", xy=(0.02, 0.97 if T == 1.0 else 0.90),
+                                xycoords="axes fraction", fontsize=8.5, color=style["color"], va="top")
+
+            ax.axhline(1.0, color="#52514e", linewidth=1.2, label="standard Malliavin")
+            ax.axvline(BANDWIDTH_MULTIPLIERS[greek], color="#9a9a96", linestyle="-.", linewidth=1.2,
+                       label=f"default gap ({BANDWIDTH_MULTIPLIERS[greek]:g})")
+            ax.set_xscale("log")
+            ax.set_yscale("log")
+            ax.set_ylim(y_lo, y_hi)
+            ax.set_xlabel(r"gap $\ell \,/\, (S_0 \sigma \sqrt{T})$")
+            ax.set_ylabel("Var per path / Var(standard Malliavin)")
+            ax.set_title(f"{family}: {GREEK_LABELS.get(greek, greek)}")
+            ax.grid(True, which="both", alpha=0.3)
+            ax.legend(frameon=True, fontsize=8, loc="lower right")
+
+    fig.suptitle("Fournié localization (Gaussian cutoff, same gap for all Greeks): per-path variance vs gap", fontsize=13)
+    plt.tight_layout()
+    return fig

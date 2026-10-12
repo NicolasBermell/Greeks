@@ -1,4 +1,3 @@
-import QuantLib as ql
 import numpy as np
 from scipy.stats import norm
 
@@ -63,30 +62,18 @@ def greeks_european_call(params: dict[str, float]) -> dict[str, float]:
     return results
 
 
-# Digital Call
-def _quantlib_european_digital_call_option(S0: float, K: float, T: float, r: float, q: float, sigma: float) -> ql.VanillaOption:
-    today = ql.Date(12, 9, 2026)
-    ql.Settings.instance().evaluationDate = today
-    day_count = ql.Actual365Fixed()
-    days = int(round(T * 365))
-    maturity = today + ql.Period(days, ql.Days)
+# Digital Call (cash-or-nothing, pays 1): V = e^{-rT} N(d2)
+def delta_digital_call(S0, K, T, r, q, sigma):
+    return np.exp(-r * T) * norm.pdf(d2(S0, K, T, r, q, sigma)) / (S0 * sigma * np.sqrt(T))
 
-    payoff = ql.CashOrNothingPayoff(ql.Option.Call, K, 1.0)
-    exercise = ql.EuropeanExercise(maturity)
-    option = ql.VanillaOption(payoff, exercise)
+def gamma_digital_call(S0, K, T, r, q, sigma):
+    return -np.exp(-r * T) * norm.pdf(d2(S0, K, T, r, q, sigma)) * d1(S0, K, T, r, q, sigma) / (S0**2 * sigma**2 * T)
 
-    spot_handle = ql.QuoteHandle(ql.SimpleQuote(S0))
-    rate_ts = ql.YieldTermStructureHandle(ql.FlatForward(today, r, day_count))
-    div_ts = ql.YieldTermStructureHandle(ql.FlatForward(today, q, day_count))
-    vol_ts = ql.BlackVolTermStructureHandle(ql.BlackConstantVol(today, ql.NullCalendar(), sigma, day_count))
-
-    bsm_process = ql.BlackScholesMertonProcess(spot_handle, div_ts, rate_ts, vol_ts)
-    engine = ql.AnalyticEuropeanEngine(bsm_process)
-    option.setPricingEngine(engine)
-    return option
+def vega_digital_call(S0, K, T, r, q, sigma):
+    return -np.exp(-r * T) * norm.pdf(d2(S0, K, T, r, q, sigma)) * d1(S0, K, T, r, q, sigma) / sigma
 
 def greeks_european_digital_call(params: dict[str, float]) -> dict[str, float]:
-    r"""Computes the Greeks of a digital (cash-or-nothing) call option using QuantLib.
+    r"""Computes the Greeks of a digital (cash-or-nothing) call option with closed-form Black-Scholes formulas.
 
     Args:
         params (dict[str, float]): Dictionary containing the option and market parameters:
@@ -98,7 +85,7 @@ def greeks_european_digital_call(params: dict[str, float]) -> dict[str, float]:
             - "sigma" (float): Annualized volatility in decimal form ($\sigma > 0$, e.g., 0.20 for 20%).
 
     Returns:
-        dict[str, float]: Dictionary containing the QuantLib analytical Greeks:
+        dict[str, float]: Dictionary containing the analytical Greeks:
             - "delta" (float): First derivative of option price with respect to spot ($\partial V / \partial S_0$).
             - "gamma" (float): Second derivative of option price with respect to spot ($\partial^2 V / \partial S_0^2$).
             - "vega" (float): First derivative of option price with respect to volatility ($\partial V / \partial \sigma$).
@@ -115,7 +102,7 @@ def greeks_european_digital_call(params: dict[str, float]) -> dict[str, float]:
         ...     "q": 0.02,
         ...     "sigma": 0.20,
         ... }
-        >>> greeks = greeks_digital_call(params)
+        >>> greeks = greeks_european_digital_call(params)
         >>> print(greeks)
         {'delta': 0.01895057875500871, 'gamma': -0.00023688223443760922, 'vega': -0.47376446887521906}
     """
@@ -123,10 +110,9 @@ def greeks_european_digital_call(params: dict[str, float]) -> dict[str, float]:
     S0, K, T, r, q, sigma = params["S0"], params["K"], params["T"], params["r"], params["q"], params["sigma"]
 
     results = {}
-    option = _quantlib_european_digital_call_option(S0, K, T, r, q, sigma)
-    results["delta"] = option.delta()
-    results["gamma"] = option.gamma()
-    results["vega"] = option.vega()
+    results["delta"] = delta_digital_call(S0, K, T, r, q, sigma)
+    results["gamma"] = gamma_digital_call(S0, K, T, r, q, sigma)
+    results["vega"] = vega_digital_call(S0, K, T, r, q, sigma)
 
     return results
 

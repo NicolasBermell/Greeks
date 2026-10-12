@@ -9,7 +9,7 @@ A comprehensive, production-grade quantitative benchmark evaluating numerical me
 This project investigates the stability, computational efficiency, and variance profiles of:
 1. **Finite Difference Monte Carlo (FDMC)** with Common Random Numbers (CRN).
 2. **Standard Malliavin Calculus** using exact global Skorokhod integration-by-parts weights.
-3. **Fournié et al. (1999) Localized Malliavin Calculus** with **Option A Decoupled Bandwidths** ($\delta_\Delta \neq \delta_\Gamma \neq \delta_\mathcal{V}$).
+3. **Fournié et al. (1999) Localized Malliavin Calculus** with per-Greek gaps.
 4. **Analytical Benchmarks** (Black-Scholes closed forms; the call with terminal knock-out is priced as call spread minus digital).
 
 ---
@@ -23,7 +23,7 @@ This project investigates the stability, computational efficiency, and variance 
   - [2.3 The Dirac Delta Breakdown on Gamma and Digitals](#23-the-dirac-delta-breakdown-on-gamma-and-digitals)
   - [2.4 Standard Malliavin Calculus & The Unbounded Wing Problem](#24-standard-malliavin-calculus--the-unbounded-wing-problem)
   - [2.5 Fournié Localization: Best of Both Worlds](#25-fournié-localization-best-of-both-worlds)
-  - [2.6 Option A Decoupled Bandwidths ($\delta_\Delta \neq \delta_\Gamma \neq \delta_\mathcal{V}$)](#26-option-a-decoupled-bandwidths-delta_delta-neq-delta_gamma-neq-delta_mathcalv)
+  - [2.6 Bandwidths (Gap $\ell$)](#26-bandwidths-gap-ell)
   - [2.7 The Call with Terminal Knock-Out](#27-the-call-with-terminal-knock-out)
 - [3. Supported Contracts & Reference Benchmarks](#3-supported-contracts--reference-benchmarks)
 - [4. Project Architecture & File Tree](#4-project-architecture--file-tree)
@@ -143,20 +143,17 @@ The localized estimators are:
 
 ---
 
-### 2.6 Option A Decoupled Bandwidths ($\delta_\Delta \neq \delta_\Gamma \neq \delta_\mathcal{V}$)
+### 2.6 Bandwidths (Gap $\ell$)
 
-A central contribution of this codebase is **Option A (Decoupled Bandwidths)**. Previous literature often forced a single compromise bandwidth $\delta$ across all Greeks (Option B).
+The code uses per-Greek default gaps ("Option A") $\ell_\Delta = \ell_\mathcal{V} = 0.20\,S_0\sigma\sqrt{T}$ and $\ell_\Gamma = 0.50\,S_0\sigma\sqrt{T}$ (`fournier_bandwidths`), all evaluated in one Monte Carlo pass, or a single "coupled" gap $0.40\,S_0\sigma\sqrt{T}$. These defaults are not optima. The gap sweep (Section 5.4c, `results/figures/gap_sweep.png`) shows:
 
-#### Singularity Topology Governs Bandwidth Optimization:
-| Sensitivity | Payoff Singularity | Boundary Term Behavior as $\delta \to 0$ | Optimal Bandwidth $\delta^*$ Rule | 1Y Call ($T=1.0$) | 1M Call ($T=1/12$) |
-| :--- | :---: | :--- | :--- | :---: | :---: |
-| **Delta ($\Delta$)** | $C^0$ (Kink) | $(S_T - K) \cdot \psi' \to 0$ (Suppressed) | $\delta^*_\Delta = 0.20 \times S_0 \sigma \sqrt{T}$ | **$4.0$** | **$1.15$** |
-| **Vega ($\mathcal{V}$)** | $C^0$ (Kink) | $(S_T - K) \cdot \psi' \to 0$ (Suppressed) | $\delta^*_\mathcal{V} = 0.20 \times S_0 \sigma \sqrt{T}$ | **$4.0$** | **$1.15$** |
-| **Gamma ($\Gamma$)** | $C^{-1}$ (Heaviside step) | $-\psi'(S_T) \sim \mathcal{O}(1/\delta)$ (Explodes!) | $\delta^*_\Gamma = 0.50 \times S_0 \sigma \sqrt{T}$ | **$10.0$** | **$2.89$** |
+| Greek | Call ($T = 1$ and $1/12$) | Digital ($T = 1$ and $1/12$) |
+| :--- | :--- | :--- |
+| $\Delta$ | No interior minimum: smaller is better, down to the pathwise (FDMC) variance as $\ell \to 0$ | Minimum near $\ell \approx 1.05$–$1.1\,S_0\sigma\sqrt{T}$ (1.5× below standard Malliavin); 2.3× worse at the default 0.2 |
+| $\Gamma$ | Broad minimum near $\ell \approx 1.05$–$1.2\,S_0\sigma\sqrt{T}$ (23–28× below standard Malliavin); about 4× worse at the default 0.5 | Narrow minimum near $\ell \approx 1.05$–$1.2\,S_0\sigma\sqrt{T}$ (70–900× below standard); 1.4–2× worse than standard at the default 0.5 |
+| $\mathcal{V}$ | No interior minimum, flat at the pathwise level below $\ell \approx 0.3$ | Minimum at small gaps (0.05–0.2), 9–31× below standard Malliavin |
 
-- **Vega behaves like Delta**, not Gamma, because the continuous factor $(S_T - K)$ cancels the boundary derivative spike $\psi' \sim 1/\delta$.
-- Enforcing a single compromise bandwidth (Option B: $\delta = 2.31$) makes the window unnecessarily wide for Delta/Vega and too narrow for Gamma.
-- **Option A evaluates all decoupled bandwidths in the same Monte Carlo pass**; each extra bandwidth costs one more cutoff evaluation per path. The gain over a single coupled bandwidth is measured in Section 7 of `analysis_malliavin_vs_FDMC.ipynb`.
+The narrow digital Gamma minimum comes from a near-cancellation: with a Gaussian cutoff and $\ell = S_0\sigma\sqrt{T}$, $\psi'' = (Z^2 - 1)\psi/\ell^2$ almost matches the Gamma weight $(Z^2 - \sigma\sqrt{T} Z - 1)/\ell^2$ path by path, more closely as $T$ shrinks.
 
 ---
 
@@ -236,7 +233,8 @@ Greeks/
 │   ├── replications_raw.csv              # R = 100 independent runs per estimator, product and N
 │   ├── replications_summary.csv          # Bias, SE, RMSE, per-path variance, time per path
 │   ├── efficiency.csv                    # Variance x time per path, N and CPU ratios vs FDMC
-│   ├── figures/                          # Error vs N with bands (one PNG per product)
+│   ├── gap_sweep.csv                     # Per-path variance vs Fournié gap
+│   ├── figures/                          # Error vs N with bands (one PNG per product), gap sweep
 │   └── summary.csv                       # Consolidated benchmark summary
 ├── tests/                                # Automated unit & regression test suite
 │   ├── test_estimators.py                # Per-path statistics, seeding, general Fournié Gamma
@@ -255,6 +253,7 @@ Greeks/
 ├── run_all_greeks.py                     # Runner executing all Monte Carlo simulation scales
 ├── run_benchmarks.py                     # Runner computing analytical benchmarks
 ├── run_replications.py                   # Independent replications, timing and efficiency
+├── run_gap_sweep.py                      # Per-path variance vs Fournié gap (call, digital; T = 1, 1/12)
 ├── products.py                           # Standardized contract parameter dictionaries
 ├── config.py                             # Simulation parameters, grid scales, and seed configs
 ├── pyproject.toml                        # Packaging configuration
@@ -319,11 +318,22 @@ Every row of `FDMC_results.csv`, `malliavin_results.csv` and `malliavin_fournier
 ```bash
 python run_replications.py
 ```
-Runs $R = 100$ seeds at $N \in \{10^4, 10^5, 10^6\}$ for every estimator (FDMC at $\varepsilon \in \{0.1, 0.01, 0.001\}$, standard Malliavin, Fournié, plus the old Fournié call-Gamma shortcut) and writes `replications_summary.csv` (bias, SE across runs, RMSE, coverage of the $\pm1.96\,$SE interval, per-path variance, time per path), `efficiency.csv`, and `results/figures/error_vs_N_*.png`. Beyond $10^6$ the error is extrapolated with $\sqrt{\text{bias}^2 + \text{Var}/N}$ rather than simulated.
+Runs $R = 100$ seeds at $N \in \{10^4, 10^5, 10^6\}$ for every estimator and product (plus the call at $T = 1/12$) (FDMC at $\varepsilon \in \{0.1, 0.01, 0.001\}$, standard Malliavin, Fournié, plus the old Fournié call-Gamma shortcut) and writes `replications_summary.csv` (bias, SE across runs, RMSE, coverage of the $\pm1.96\,$SE interval, per-path variance, time per path), `efficiency.csv`, and `results/figures/error_vs_N_*.png`. Beyond $10^6$ the error is extrapolated with $\sqrt{\text{bias}^2 + \text{Var}/N}$ rather than simulated.
 
 The number of paths for a tolerance is $N^* = z^2\,\text{Var}/\text{tol}^2$, so $N^*_A / N^*_B = \text{Var}_A / \text{Var}_B$. Each run times all three Greeks together (FDMC: 5 payoff evaluations per path; standard Malliavin: 1; Fournié: 1 plus the cutoff evaluations), and efficiency is reported as $\text{Var} \times \text{time per path}$, the CPU time needed per unit of inverse squared error.
 
 ---
+
+### 5.4c Fournié Gap Sweep
+
+```bash
+python run_gap_sweep.py
+```
+Per-path variance of the Fournié estimators against the gap $\ell$ (in units of $S_0\sigma\sqrt{T}$, same $\ell$ for all Greeks, Gaussian cutoff) for the call and the digital at $T = 1$ and $T = 1/12$, on $2\times10^6$ shared paths per product, with standard Malliavin and FDMC ($\varepsilon = 0.01$) on the same paths. Writes `results/gap_sweep.csv` and `results/figures/gap_sweep.png`. Main results (variance relative to standard Malliavin):
+- Call Delta and Vega: no interior minimum; the variance falls to the FDMC (pathwise) level as $\ell \to 0$.
+- Call Gamma: broad minimum at $\ell \approx 1$–$1.2\,S_0\sigma\sqrt{T}$, 23–28× below standard Malliavin; the default 0.5 is about 4× worse.
+- Digital Delta and Gamma: worse than standard Malliavin at the default gaps (2.3× and 1.4–2×); near $\ell \approx S_0\sigma\sqrt{T}$, 1.5× better for Delta and 70–900× better for Gamma, but the Gamma minimum is narrow (a near-cancellation between $\psi''$ and the Gamma weight for the Gaussian cutoff).
+- Digital Vega: best at small gaps, 9–31× below standard Malliavin.
 
 ### 5.5 Notebooks
 
@@ -348,7 +358,7 @@ To edit a notebook interactively, open the `.ipynb` in Jupyter with the jupytext
 
 ### Summary Comparison Table
 
-Paths needed relative to FDMC ($\varepsilon = 0.01$) for the same standard error, i.e. the ratio of per-path variances, from $R = 100$ runs at $N = 10^6$ (`results/efficiency.csv`). Lower is better; multiply by the time per path (FDMC $\approx 74$ ns, standard Malliavin $\approx 27$ ns, Fournié $\approx 77$ ns) for the CPU-time ratio.
+Paths needed relative to FDMC ($\varepsilon = 0.01$) for the same standard error, i.e. the ratio of per-path variances, from $R = 100$ runs at $N = 10^6$ (`results/efficiency.csv`). Lower is better; multiply by the time per path (FDMC $\approx 75$ ns, standard Malliavin $\approx 28$ ns, Fournié $\approx 79$ ns) for the CPU-time ratio. Fournié uses the default gaps (Section 2.6); for the digital, other gaps change the picture (Section 5.4c).
 
 | Contract | Greek | Standard Malliavin | Fournié | Best (variance × time) |
 | :--- | :---: | :---: | :---: | :--- |
@@ -365,7 +375,6 @@ Paths needed relative to FDMC ($\varepsilon = 0.01$) for the same standard error
 At $\varepsilon = 0.01$ the FDMC truncation bias is below the noise of these runs except for the knock-out Vega; the problem of FDMC on non-smooth payoffs is variance (per-path variance growing like $1/\varepsilon$ for a kink and $1/\varepsilon^3$ for a jump).
 
 ### Production Rules of Thumb:
-1. **Unbounded payoffs ($S_T \to \infty$):** use **Fournié localization** for Gamma; for Delta and Vega it matches the pathwise derivative (FDMC with shared random numbers) at a similar cost per path. Per-Greek bandwidths:
-   $$\delta^*_\Delta = 0.20 S_0 \sigma \sqrt{T}, \quad \delta^*_\Gamma = 0.50 S_0 \sigma \sqrt{T}, \quad \delta^*_\mathcal{V} = 0.20 S_0 \sigma \sqrt{T}$$
+1. **Unbounded payoffs ($S_T \to \infty$):** use **Fournié localization** for Gamma, with a gap near $S_0 \sigma \sqrt{T}$; for Delta and Vega it can only match the pathwise derivative (FDMC with shared random numbers), at a similar cost per path.
 2. **Narrow knock-out intervals ($H - K \ll S_0 \sigma \sqrt{T}$):** Turn Fournié **OFF** and deploy **Pure Standard Malliavin**.
-3. **Cost per path:** central differences need 5 payoff evaluations per path for $(\Delta, \Gamma, \mathcal{V})$ against 1 for Malliavin. Measured with all three Greeks together, standard Malliavin takes about $27$ ns per path, FDMC about $74$ ns and Fournié about $77$ ns (`results/efficiency.csv`). Compare methods by variance $\times$ time per path, not by path count alone.
+3. **Cost per path:** central differences need 5 payoff evaluations per path for $(\Delta, \Gamma, \mathcal{V})$ against 1 for Malliavin. Measured with all three Greeks together, standard Malliavin takes about $28$ ns per path, FDMC about $75$ ns and Fournié about $79$ ns (`results/efficiency.csv`). Compare methods by variance $\times$ time per path, not by path count alone.

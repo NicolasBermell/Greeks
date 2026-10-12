@@ -534,7 +534,7 @@ plt.show()
 # 2. **As $\delta \to \infty$ (Overly Broad Window):**
 #    The smoothing window engulfs the entire probability density of terminal prices ($\psi \to 1$). The estimator degenerates into **Standard Malliavin**, inheriting the full quadratic weight variance.
 # 3. **The Convex Minimum ($\delta^*$):**
-#    A unique, optimal bandwidth exists in between. The theoretical rule states $\delta^* = 0.40 S_0 \sigma \sqrt{T} \approx 2.31$. What does the empirical data show?
+#    For Gamma a minimum exists in between. Whether Delta and Vega have one is what the sweep below shows (the consistent sweep over both maturities is in `analysis_malliavin_vs_FDMC`, Section 5c: no interior minimum for call Delta and Vega, Gamma minimum near $S_0\sigma\sqrt{T}$). The coupled default is $\delta = 0.40\, S_0 \sigma \sqrt{T} \approx 2.31$.
 
 # %%
 deltas_grid = [0.25, 0.5, 0.75, 1.0, 1.5, 2.0, 2.3094, 3.0, 4.0, 5.0, 6.0, 8.0, 10.0, 15.0]
@@ -662,11 +662,9 @@ print(f"  Vega Variance Penalty if unscaled : {(sub_8['vega_var'] / sub_calib['v
 # 2. **Gamma ($C^{-1}$ Step Discontinuity):**
 #    In the localized Gamma, the term $-2\,\mathbf{1}_{S_T > K}\,\psi'(S_T) (S_T/S_0)^2$ contains the step $g'(S_T) = \mathbf{1}_{S_T > K}$, which jumps by $+1$ at $K$ and does NOT vanish.
 #    It has no $(S_T - K)$ dampener and grows as $\mathcal{O}(1/\delta)$ when $\delta \to 0$.
-#    Therefore, **Gamma strictly requires a wider bandwidth ($\delta_\Gamma^* \approx 0.50 S_0 \sigma \sqrt{T} \approx 2.89$)** to keep boundary variance under control.
+#    Therefore Gamma needs a wider bandwidth than Delta and Vega. The default is $0.50\, S_0 \sigma \sqrt{T} \approx 2.89$; the gap sweep puts the minimum nearer $S_0 \sigma \sqrt{T} \approx 6$.
 # 3. **The Scaling Rule for Vega:**
-#    Because Vega shares the continuous kink topology of Delta, its variance is minimized when the pathwise derivative is leveraged over the largest possible domain without boundary instability:
-#    $$\delta^*_\mathcal{V} \approx 0.20 \times S_0 \sigma \sqrt{T} \approx 1.15 \quad (\text{for } T = 1/12)$$
-#    $$\delta^*_\mathcal{V} \approx 4.0 \quad (\text{for } T = 1.0)$$
+#    Because Vega shares the continuous kink of Delta, its variance falls as the pathwise derivative is used over a larger domain, i.e. as $\delta$ shrinks, and levels off at the pathwise variance. The default $0.20\, S_0 \sigma \sqrt{T}$ ($\approx 1.15$ at $T = 1/12$, $4.0$ at $T = 1$) is already on that plateau.
 #
 # Below, we visualize the Monte Carlo sample dispersion for Vega and sweep $\delta$ across a fine grid!
 
@@ -734,10 +732,8 @@ print(f"  Extra Reduction from Decoupling vs. Coupled: {(sub_v_calib / best_v_fi
 #   Uses a single scalar $\delta \approx 0.40 S_0 \sigma \sqrt{T} = 2.31$ for all Greeks ($\delta_\Delta = \delta_\Gamma = \delta_\mathcal{V} = 2.31$).
 #   The table below shows how this compromise compares with per-Greek bandwidths.
 # - **Option A (Decoupled Bandwidths in a Single MC Pass):**
-#   Exploits the mathematical topology of each Greek individually:
-#   $$\delta^*_\Delta = 0.20 \times S_0 \sigma \sqrt{T} \approx 1.15 \quad (\text{Continuous Kink } C^0)$$
-#   $$\delta^*_\mathcal{V} = 0.20 \times S_0 \sigma \sqrt{T} \approx 1.15 \quad (\text{Continuous Kink } C^0)$$
-#   $$\delta^*_\Gamma = 0.50 \times S_0 \sigma \sqrt{T} \approx 2.89 \quad (\text{Discontinuous Step } C^{-1})$$
+#   One default bandwidth per Greek:
+#   $$\delta_\Delta = \delta_\mathcal{V} = 0.20 \times S_0 \sigma \sqrt{T} \approx 1.15, \qquad \delta_\Gamma = 0.50 \times S_0 \sigma \sqrt{T} \approx 2.89$$
 #   Paths and terminal prices $S_T$ are generated once; each extra bandwidth costs one more cutoff evaluation per path.
 #
 # Below, we compare **Standard Malliavin vs. Coupled Fournié vs. Decoupled Fournié (Option A)** on $1,000,000$ Common Random Number paths!

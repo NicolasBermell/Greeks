@@ -30,6 +30,7 @@ from Utilities.plotting import (
     plot_variance_convexity_curve,
     plot_gap_function_heatmap,
     plot_replication_error_vs_N,
+    plot_gap_sweep,
     GREEK_LABELS,
 )
 from Utilities.profiling import (
@@ -77,6 +78,7 @@ __all__ = [
     "plot_variance_convexity_curve",
     "plot_gap_function_heatmap",
     "plot_replication_error_vs_N",
+    "plot_gap_sweep",
     "GREEK_LABELS",
     # Profiling
     "benchmark_fdmc_execution_time",

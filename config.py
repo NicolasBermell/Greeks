@@ -26,6 +26,13 @@ REPLICATION_SUMMARY_FILE = "./results/replications_summary.csv"
 EFFICIENCY_FILE = "./results/efficiency.csv"
 FIGURES_DIR = "./results/figures"
 
+# Fournié gap sweep: per-path variance vs the gap l = multiplier * S0 * sigma * sqrt(T), same l for
+# all three Greeks, Gaussian cutoff, one set of shared paths per product.
+GAP_SWEEP_MULTIPLIERS = [0.02, 0.03, 0.05, 0.07, 0.1, 0.15, 0.2, 0.3, 0.4, 0.5, 0.7, 0.85, 0.95, 1.0, 1.05, 1.1, 1.2, 1.4, 1.7, 2.0, 3.0, 5.0, 10.0]
+GAP_SWEEP_N = 2_000_000
+GAP_SWEEP_SEED = 31_415
+GAP_SWEEP_FILE = "./results/gap_sweep.csv"
+
 # Simulation Parameters for Asian Options
 ASIAN_BENCHMARK_N_SIMS = 5_000_000
 ASIAN_BENCHMARK_EPS = 0.01

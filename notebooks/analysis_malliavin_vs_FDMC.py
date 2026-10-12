@@ -65,23 +65,14 @@
 #
 # ### 1.3 Supported Smoothing Functions $\psi(S_T)$
 # With normalized distance $u = |S_T - K| / \delta$:
-# - **Gaussian (Default & Optimal)**: $\psi(S_T) = \exp(-0.5 u^2)$, $\quad \psi'(S_T) = -\frac{S_T - K}{\delta^2} \psi(S_T)$
+# - **Gaussian (default)**: $\psi(S_T) = \exp(-0.5 u^2)$, $\quad \psi'(S_T) = -\frac{S_T - K}{\delta^2} \psi(S_T)$
 # - **Compact Cubic Hermite**: $\psi(S_T) = 1 - 3u^2 + 2u^3$ for $u \le 1$, $0$ otherwise.
 # - **Compact Cosine**: $\psi(S_T) = \frac{1}{2}(1 + \cos(\pi u))$ for $u \le 1$, $0$ otherwise.
 # - **Compact Quintic**: $\psi(S_T) = 1 - 10u^3 + 15u^4 - 6u^5$ for $u \le 1$, $0$ otherwise.
 # - **Rational Cauchy**: $\psi(S_T) = \frac{1}{1 + u^2}$, $\quad \psi'(S_T) = -\frac{2(S_T - K)}{\delta^2 (1 + u^2)^2}$
 #
-# ### 1.4 Option A: Decoupled Bandwidths per Greek ($\delta_\Delta \ne \delta_\Gamma \ne \delta_\mathcal{V}$)
-# A critical insight established in our dedicated gap analysis is that **the optimal Fournié smoothing bandwidth depends directly on the singularity order of each Greek**:
-# - **Delta ($\Delta$) and Vega ($\mathcal{V}$): Continuous Kink ($C^0$)**
-#   The payoff $g(S_T) = (S_T - K)^+$ is continuous. As $S_T \to K$, $g(S_T) \to 0$, which naturally suppresses the boundary derivative spike $-\psi'(S_T) \sim 1/\delta$. Therefore, Delta and Vega achieve minimal variance with a narrower bandwidth that maximizes the domain of the pathwise derivative:
-#   $$\delta^*_\Delta = \delta^*_\mathcal{V} \approx 0.20 \times S_0 \sigma \sqrt{T} = 4.0 \quad (T = 1.0)$$
-# - **Gamma ($\Gamma$): Discontinuous Step ($C^{-1}$)**
-#   Gamma differentiates the digital step indicator $g'(S_T) = \mathbf{1}_{S_T > K}$, which jumps by $+1$ at $K$. The boundary term $-\psi'(S_T) \frac{S_T}{S_0}$ has no $(S_T - K)$ dampener and blows up as $\mathcal{O}(1/\delta)$ if $\delta$ is too small. Hence, Gamma strictly requires a wider bandwidth:
-#   $$\delta^*_\Gamma \approx 0.50 \times S_0 \sigma \sqrt{T} = 10.0 \quad (T = 1.0)$$
-#
-# **Option A vs. Option B:**
-# Rather than one compromise bandwidth for all Greeks (Option B, e.g. $\delta = 8.0$), **Option A uses one bandwidth per Greek** in the same Monte Carlo pass. Section 7 measures the difference.
+# ### 1.4 Bandwidths per Greek
+# The runs use per-Greek default gaps, $\ell_\Delta = \ell_\mathcal{V} = 0.20\,S_0\sigma\sqrt{T}$ and $\ell_\Gamma = 0.50\,S_0\sigma\sqrt{T}$ ("Option A"), in one Monte Carlo pass. The reasoning behind a wider Gamma gap: for Delta and Vega of the call the boundary term $\Phi\psi'$ is damped by $(S_T - K)$, while the Gamma term $-2\,\mathbf{1}_{S_T > K}\psi'$ is not and grows like $1/\ell$. These defaults are not optima: Section 5c sweeps the gap and finds no interior minimum for call Delta and Vega and a Gamma minimum near $\ell \approx S_0\sigma\sqrt{T}$. Section 7 compares the defaults with one coupled gap.
 
 # %%
 # %load_ext autoreload
@@ -110,7 +101,7 @@ print("Environment and Utilities loaded successfully.")
 # ---
 # ## 2. Data
 #
-# 1. **Analytical benchmarks**: Black-Scholes closed forms (QuantLib for the digital). The call with terminal knock-out is two calls and a digital: $(S_T-K)^+ - (S_T-H)^+ - (H-K)\mathbf{1}_{S_T>H}$.
+# 1. **Analytical benchmarks**: Black-Scholes closed forms. The call with terminal knock-out is two calls and a digital: $(S_T-K)^+ - (S_T-H)^+ - (H-K)\mathbf{1}_{S_T>H}$.
 # 2. **Single-run sweeps** (`FDMC_results.csv`, `malliavin_results.csv`, `malliavin_fournier_results.csv`): one seed, $N$ from $10^4$ to $10^8$, with the per-path variance and standard error of every Greek.
 # 3. **Replications** (`replications_summary.csv`, `efficiency.csv`): $R = 100$ seeds at $N \in \{10^4, 10^5, 10^6\}$, with bias, RMSE, coverage, per-path variance and time per path.
 #
@@ -215,6 +206,38 @@ fig_bar_bars = utils.plot_comparative_greeks_bars(
     fdmc_metrics_df, mal_metrics_df, "Call with terminal knock-out",
     n_choice=100_000_000, fournier_metrics_df=four_metrics_df
 )
+plt.show()
+
+# %% [markdown]
+# ---
+# ## 5b. Short Maturity: Call at $T = 1/12$
+#
+# Same replications for the at-the-money call with one month to maturity. The standard Malliavin weights grow as $T$ shrinks ($\pi^\Delta \propto T^{-1/2}$, $\pi^\Gamma \propto T^{-1}$), but at the money so do the Greeks they estimate ($\Gamma \propto T^{-1/2}$) and the payoff shrinks ($\propto S_0\sigma\sqrt{T}$). The per-path standard deviation relative to the Greek is therefore about the same at both maturities (Section 6).
+
+# %%
+fig_1m = utils.plot_replication_error_vs_N(rep_summary, "Call European 1M")
+plt.show()
+
+rel = efficiency_df[efficiency_df["Product"].isin(["Call European ATM", "Call European 1M"])
+                    & ~efficiency_df["Estimator"].isin(["FDMC (ε=0.1)", "FDMC (ε=0.001)", "Malliavin Fournié (Γ shortcut)"])].copy()
+rel["sd per path / |Greek|"] = np.sqrt(rel["var_per_path"]) / rel["benchmark"].abs()
+display(rel.pivot_table(index=["Greek", "Estimator"], columns="Product", values="sd per path / |Greek|"))
+
+# %% [markdown]
+# ---
+# ## 5c. How Hard Is the Gap to Set?
+#
+# Per-path variance of the Fournié estimators relative to standard Malliavin as a function of the gap $\ell$ in units of $S_0\sigma\sqrt{T}$, with the same $\ell$ for all three Greeks, Gaussian cutoff, $2 \times 10^6$ shared paths per product (`run_gap_sweep.py`, `results/gap_sweep.csv`). Below 1, localization needs fewer paths than standard Malliavin; per path it also costs about $2.8\times$ more time.
+#
+# - **Call, Delta and Vega**: no interior minimum. The variance keeps falling as $\ell \to 0$, where localization becomes the pathwise derivative, and levels off at the FDMC variance. Localization can match FDMC here, not beat it.
+# - **Call, Gamma**: a broad minimum near $\ell \approx S_0\sigma\sqrt{T}$ (1.2 at $T = 1$, 1.05 at $T = 1/12$), 23–28× below standard Malliavin. The default 0.5 is about 4× worse than the minimum.
+# - **Digital, Delta and Gamma**: worse than standard Malliavin at the default gaps (0.2 and 0.5). Near $\ell \approx S_0\sigma\sqrt{T}$ localization helps: Delta 1.5× fewer paths (not enough to pay for the extra time per path), Gamma 70× ($T = 1$) to 900× ($T = 1/12$) fewer. The Gamma minimum is narrow: with a Gaussian cutoff and $\ell = S_0\sigma\sqrt{T}$, $\psi''$ nearly cancels the Gamma weight path by path, and $\pm 10\%$ on $\ell$ costs a factor 3–10 at $T = 1/12$.
+# - **Digital, Vega**: best at small gaps (0.05–0.2), 9–30× below standard Malliavin.
+# - **Knock-out** (not shown): the gap is capped at $(H-K)/2 \approx 0.13\, S_0\sigma\sqrt{T}$, far below where localization helps a jump, which is consistent with Section 5.
+
+# %%
+gap_sweep_df = pd.read_csv("./results/gap_sweep.csv")
+fig_gap = utils.plot_gap_sweep(gap_sweep_df)
 plt.show()
 
 # %% [markdown]

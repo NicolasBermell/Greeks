@@ -5,6 +5,7 @@ from Benchmarks.europeans import (
     benchmark_greeks_european_call_terminal_knockout,
 )
 from products import (
+    example_european_call_1M,
     example_european_call_ATM,
     example_european_digital_ATM,
     example_european_call_terminal_knockout,
@@ -22,6 +23,7 @@ def benchmark_all_european() -> DataFrame:
         example_european_call_ATM["name"]: benchmark_european_call,
         example_european_digital_ATM["name"]: benchmark_european_digital,
         example_european_call_terminal_knockout["name"]: benchmark_call_terminal_knockout,
+        example_european_call_1M["name"]: benchmark_greeks_european_call(example_european_call_1M),
     }).T
 
     results.index.name = "Product"

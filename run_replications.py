@@ -38,8 +38,16 @@ from config import (
     REPLICATION_RAW_FILE,
     REPLICATION_SUMMARY_FILE,
 )
-from products import example_european_call_ATM, example_european_call_terminal_knockout
+from Methods.Malliavin import malliavin_fournier_greeks_european_call, malliavin_greeks_european_call
+from Methods.MonteCarlo.FDMC_european import FDMC_greeks_european_call
+from products import example_european_call_1M, example_european_call_ATM, example_european_call_terminal_knockout
 from run_all_greeks import EUROPEAN_PRODUCTS
+
+# The single-run sweeps cover EUROPEAN_PRODUCTS; the replications also include the 1-month call.
+REPLICATION_PRODUCTS = EUROPEAN_PRODUCTS + [
+    (example_european_call_1M, FDMC_greeks_european_call, malliavin_greeks_european_call,
+     malliavin_fournier_greeks_european_call),
+]
 from run_benchmarks import benchmark_all
 from Utilities.metrics import compute_efficiency_table, summarize_replications
 from Utilities.plotting import plot_replication_error_vs_N
@@ -48,7 +56,7 @@ from Utilities.plotting import plot_replication_error_vs_N
 def build_estimators() -> list[tuple[str, float | None, dict, callable]]:
     """(Method, eps, product params, fn(seed, N) -> stats dict) for every run configuration."""
     estimators = []
-    for params, fdmc_fn, mall_fn, four_fn in EUROPEAN_PRODUCTS:
+    for params, fdmc_fn, mall_fn, four_fn in REPLICATION_PRODUCTS:
         for eps in REPLICATION_FDMC_EPS_ARRAY:
             estimators.append(("FDMC", eps, params,
                                lambda seed, N, p=params, f=fdmc_fn, e=eps: f(p, eps=e, N=N, seed=seed, return_stats=True)))
