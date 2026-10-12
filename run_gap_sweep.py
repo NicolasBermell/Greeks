@@ -1,6 +1,6 @@
 """Per-path variance of the Fournié estimators as a function of the gap.
 
-For the call and the digital at T = 1 and T = 1/12, and for each gap
+For the call and the digital at T = 1 and T = 1/252, and for each gap
     l = multiplier * S0 * sigma * sqrt(T)     (GAP_SWEEP_MULTIPLIERS),
 the same l is used for Delta, Gamma and Vega with the Gaussian cutoff. All gaps of a product use
 the same paths, so the curves are smooth in l. Standard Malliavin (the limit l -> infinity) and
@@ -37,9 +37,9 @@ from Methods.Malliavin import (
 from Methods.MonteCarlo.FDMC_european import FDMC_samples_european
 from Methods.sampling import GREEKS, generate_paths
 from products import (
-    example_european_call_1M,
+    example_european_call_1D,
     example_european_call_ATM,
-    example_european_digital_1M,
+    example_european_digital_1D,
     example_european_digital_ATM,
 )
 from Utilities.plotting import plot_gap_sweep
@@ -47,10 +47,10 @@ from Utilities.plotting import plot_gap_sweep
 # (params, payoff, Fournié samples fn, analytical Greeks fn)
 SWEEP_PRODUCTS = [
     (example_european_call_ATM, payoffs.call, malliavin_fournier_samples_european_call, greeks_european_call),
-    (example_european_call_1M, payoffs.call, malliavin_fournier_samples_european_call, greeks_european_call),
+    (example_european_call_1D, payoffs.call, malliavin_fournier_samples_european_call, greeks_european_call),
     (example_european_digital_ATM, payoffs.digital_call, malliavin_fournier_samples_european_digital_call,
      greeks_european_digital_call),
-    (example_european_digital_1M, payoffs.digital_call, malliavin_fournier_samples_european_digital_call,
+    (example_european_digital_1D, payoffs.digital_call, malliavin_fournier_samples_european_digital_call,
      greeks_european_digital_call),
 ]
 

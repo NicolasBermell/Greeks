@@ -147,11 +147,11 @@ The localized estimators are:
 
 The code uses per-Greek default gaps ("Option A") $\ell_\Delta = \ell_\mathcal{V} = 0.20\,S_0\sigma\sqrt{T}$ and $\ell_\Gamma = 0.50\,S_0\sigma\sqrt{T}$ (`fournier_bandwidths`), all evaluated in one Monte Carlo pass, or a single "coupled" gap $0.40\,S_0\sigma\sqrt{T}$. These defaults are not optima. The gap sweep (Section 5.4c, `results/figures/gap_sweep.png`) shows:
 
-| Greek | Call ($T = 1$ and $1/12$) | Digital ($T = 1$ and $1/12$) |
+| Greek | Call ($T = 1$ and $1/252$) | Digital ($T = 1$ and $1/252$) |
 | :--- | :--- | :--- |
-| $\Delta$ | No interior minimum: smaller is better, down to the pathwise (FDMC) variance as $\ell \to 0$ | Minimum near $\ell \approx 1.05$–$1.1\,S_0\sigma\sqrt{T}$ (1.5× below standard Malliavin); 2.3× worse at the default 0.2 |
-| $\Gamma$ | Broad minimum near $\ell \approx 1.05$–$1.2\,S_0\sigma\sqrt{T}$ (23–28× below standard Malliavin); about 4× worse at the default 0.5 | Narrow minimum near $\ell \approx 1.05$–$1.2\,S_0\sigma\sqrt{T}$ (70–900× below standard); 1.4–2× worse than standard at the default 0.5 |
-| $\mathcal{V}$ | No interior minimum, flat at the pathwise level below $\ell \approx 0.3$ | Minimum at small gaps (0.05–0.2), 9–31× below standard Malliavin |
+| $\Delta$ | No interior minimum: smaller is better, down to the pathwise (FDMC) variance as $\ell \to 0$ | Minimum near $\ell \approx 1.0$–$1.1\,S_0\sigma\sqrt{T}$ (1.5× below standard Malliavin); 2.3× worse at the default 0.2 |
+| $\Gamma$ | Broad minimum near $\ell \approx 1.0$–$1.2\,S_0\sigma\sqrt{T}$ (22–28× below standard Malliavin); about 4× worse at the default 0.5 | Narrow minimum near $\ell \approx 1.0$–$1.2\,S_0\sigma\sqrt{T}$ (72× below standard at $T = 1$, 6700× at $T = 1/252$); 1.25–2× worse than standard at the default 0.5 |
+| $\mathcal{V}$ | No interior minimum, flat at the pathwise level below $\ell \approx 0.3$ | Minimum at small gaps (0.2 at $T = 1$, $\le 0.02$ at $T = 1/252$), 9–130× below standard Malliavin; at $T = 1/252$ FDMC is 16× better than standard Malliavin |
 
 The narrow digital Gamma minimum comes from a near-cancellation: with a Gaussian cutoff and $\ell = S_0\sigma\sqrt{T}$, $\psi'' = (Z^2 - 1)\psi/\ell^2$ almost matches the Gamma weight $(Z^2 - \sigma\sqrt{T} Z - 1)/\ell^2$ path by path, more closely as $T$ shrinks.
 
@@ -253,7 +253,7 @@ Greeks/
 ├── run_all_greeks.py                     # Runner executing all Monte Carlo simulation scales
 ├── run_benchmarks.py                     # Runner computing analytical benchmarks
 ├── run_replications.py                   # Independent replications, timing and efficiency
-├── run_gap_sweep.py                      # Per-path variance vs Fournié gap (call, digital; T = 1, 1/12)
+├── run_gap_sweep.py                      # Per-path variance vs Fournié gap (call, digital; T = 1, 1/252)
 ├── products.py                           # Standardized contract parameter dictionaries
 ├── config.py                             # Simulation parameters, grid scales, and seed configs
 ├── pyproject.toml                        # Packaging configuration
@@ -318,7 +318,7 @@ Every row of `FDMC_results.csv`, `malliavin_results.csv` and `malliavin_fournier
 ```bash
 python run_replications.py
 ```
-Runs $R = 100$ seeds at $N \in \{10^4, 10^5, 10^6\}$ for every estimator and product (plus the call at $T = 1/12$) (FDMC at $\varepsilon \in \{0.1, 0.01, 0.001\}$, standard Malliavin, Fournié, plus the old Fournié call-Gamma shortcut) and writes `replications_summary.csv` (bias, SE across runs, RMSE, coverage of the $\pm1.96\,$SE interval, per-path variance, time per path), `efficiency.csv`, and `results/figures/error_vs_N_*.png`. Beyond $10^6$ the error is extrapolated with $\sqrt{\text{bias}^2 + \text{Var}/N}$ rather than simulated.
+Runs $R = 100$ seeds at $N \in \{10^4, 10^5, 10^6\}$ for every estimator and product (plus the one-day call, $T = 1/252$) (FDMC at $\varepsilon \in \{0.1, 0.01, 0.001\}$, standard Malliavin, Fournié, plus the old Fournié call-Gamma shortcut) and writes `replications_summary.csv` (bias, SE across runs, RMSE, coverage of the $\pm1.96\,$SE interval, per-path variance, time per path), `efficiency.csv`, and `results/figures/error_vs_N_*.png`. Beyond $10^6$ the error is extrapolated with $\sqrt{\text{bias}^2 + \text{Var}/N}$ rather than simulated.
 
 The number of paths for a tolerance is $N^* = z^2\,\text{Var}/\text{tol}^2$, so $N^*_A / N^*_B = \text{Var}_A / \text{Var}_B$. Each run times all three Greeks together (FDMC: 5 payoff evaluations per path; standard Malliavin: 1; Fournié: 1 plus the cutoff evaluations), and efficiency is reported as $\text{Var} \times \text{time per path}$, the CPU time needed per unit of inverse squared error.
 
@@ -329,11 +329,13 @@ The number of paths for a tolerance is $N^* = z^2\,\text{Var}/\text{tol}^2$, so 
 ```bash
 python run_gap_sweep.py
 ```
-Per-path variance of the Fournié estimators against the gap $\ell$ (in units of $S_0\sigma\sqrt{T}$, same $\ell$ for all Greeks, Gaussian cutoff) for the call and the digital at $T = 1$ and $T = 1/12$, on $2\times10^6$ shared paths per product, with standard Malliavin and FDMC ($\varepsilon = 0.01$) on the same paths. Writes `results/gap_sweep.csv` and `results/figures/gap_sweep.png`. Main results (variance relative to standard Malliavin):
+Per-path variance of the Fournié estimators against the gap $\ell$ (in units of $S_0\sigma\sqrt{T}$, same $\ell$ for all Greeks, Gaussian cutoff) for the call and the digital at $T = 1$ and $T = 1/252$, on $2\times10^6$ shared paths per product, with standard Malliavin and FDMC ($\varepsilon = 0.01$) on the same paths. Writes `results/gap_sweep.csv` and `results/figures/gap_sweep.png`. Main results (variance relative to standard Malliavin):
 - Call Delta and Vega: no interior minimum; the variance falls to the FDMC (pathwise) level as $\ell \to 0$.
-- Call Gamma: broad minimum at $\ell \approx 1$–$1.2\,S_0\sigma\sqrt{T}$, 23–28× below standard Malliavin; the default 0.5 is about 4× worse.
-- Digital Delta and Gamma: worse than standard Malliavin at the default gaps (2.3× and 1.4–2×); near $\ell \approx S_0\sigma\sqrt{T}$, 1.5× better for Delta and 70–900× better for Gamma, but the Gamma minimum is narrow (a near-cancellation between $\psi''$ and the Gamma weight for the Gaussian cutoff).
-- Digital Vega: best at small gaps, 9–31× below standard Malliavin.
+- Call Gamma: broad minimum at $\ell \approx 1$–$1.2\,S_0\sigma\sqrt{T}$, 22–28× below standard Malliavin; the default 0.5 is about 4× worse.
+- Digital Delta and Gamma: worse than standard Malliavin at the default gaps (2.3× and 1.4–2×); near $\ell \approx S_0\sigma\sqrt{T}$, 1.5× better for Delta and 72× ($T = 1$) to 6700× ($T = 1/252$) better for Gamma, but the Gamma minimum is narrow (a near-cancellation between $\psi''$ and the Gamma weight for the Gaussian cutoff).
+- Digital Vega: best at small gaps, 9–130× below standard Malliavin.
+
+The one-day call replaces the one-month call in the replications and the gap sweep (`example_european_call_1D`, `example_european_digital_1D` in `products.py`); the one-month products remain for `analysis_european_call_1M` and its test.
 
 ### 5.5 Notebooks
 

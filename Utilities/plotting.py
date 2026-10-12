@@ -655,7 +655,7 @@ def plot_replication_error_vs_N(
 # Colors identify the maturity (not a method); line style and marker repeat the encoding.
 GAP_SWEEP_STYLES = {
     1.0: {"color": "#2a78d6", "linestyle": "-", "marker": "o", "label": "T = 1"},
-    1.0 / 12.0: {"color": "#d55181", "linestyle": "--", "marker": "s", "label": "T = 1/12"},
+    1.0 / 252.0: {"color": "#d55181", "linestyle": "--", "marker": "s", "label": "T = 1/252"},
 }
 
 

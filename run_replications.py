@@ -40,12 +40,12 @@ from config import (
 )
 from Methods.Malliavin import malliavin_fournier_greeks_european_call, malliavin_greeks_european_call
 from Methods.MonteCarlo.FDMC_european import FDMC_greeks_european_call
-from products import example_european_call_1M, example_european_call_ATM, example_european_call_terminal_knockout
+from products import example_european_call_1D, example_european_call_ATM, example_european_call_terminal_knockout
 from run_all_greeks import EUROPEAN_PRODUCTS
 
-# The single-run sweeps cover EUROPEAN_PRODUCTS; the replications also include the 1-month call.
+# The single-run sweeps cover EUROPEAN_PRODUCTS; the replications also include the 1-day call.
 REPLICATION_PRODUCTS = EUROPEAN_PRODUCTS + [
-    (example_european_call_1M, FDMC_greeks_european_call, malliavin_greeks_european_call,
+    (example_european_call_1D, FDMC_greeks_european_call, malliavin_greeks_european_call,
      malliavin_fournier_greeks_european_call),
 ]
 from run_benchmarks import benchmark_all

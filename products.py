@@ -29,6 +29,27 @@ example_european_digital_1M = {
     "name": "Digital European 1M"
 }
 
+# One trading day (T = 1/252): the extreme short-maturity case used in the replications and gap sweep
+example_european_call_1D = {
+    "S0": 100,
+    "K": 100,
+    "T": 1 / 252,
+    "r": 0.05,
+    "q": 0.02,
+    "sigma": 0.20,
+    "name": "Call European 1D"
+}
+
+example_european_digital_1D = {
+    "S0": 100,
+    "K": 100,
+    "T": 1 / 252,
+    "r": 0.05,
+    "q": 0.02,
+    "sigma": 0.20,
+    "name": "Digital European 1D"
+}
+
 example_european_digital_ATM = {
     "S0": 100,
     "K": 100,
