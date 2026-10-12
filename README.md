@@ -211,19 +211,19 @@ Greeks/
 │   ├── Malliavin/                        # Malliavin calculus implementations
 │   │   ├── __init__.py
 │   │   ├── malliavin_european_standard.py # Exact Skorokhod weights (Delta, Gamma, Vega)
-│   │   └── malliavin_european_fournier.py # Fournié localization (Option A Decoupled)
+│   │   └── malliavin_european_fournier.py # Fournié localization, general Gamma, fournier_bandwidths()
 │   ├── MonteCarlo/                       # Finite Difference Monte Carlo
 │   │   ├── __init__.py
 │   │   └── FDMC_european.py              # Central FDMC with Common Random Numbers (CRN)
-│   └── sampling.py                       # default_rng(seed) paths, chunking, per-path variance / SE
+│   ├── payoffs.py                        # Payoffs and their a.e. derivatives, shared by all estimators
+│   └── sampling.py                       # default_rng(seed) paths, S_T, chunking, per-path variance / SE
 ├── Utilities/                            # Core analysis, profiling, and plotting utilities
 │   ├── __init__.py
 │   ├── metrics.py                        # Metric loaders, error enrichment, convergence tests
 │   ├── plotting.py                       # Matplotlib visualization routines
-│   └── profiling.py                      # CPU timers, latency SLAs (250ms–5000ms), Pareto curves
-├── pricers/                              # Core simulation engines
-│   ├── europeans_analytic.py             # Closed-form pricing
-│   └── europeans_MC.py                   # Vectorized terminal spot simulation
+│   └── profiling.py                      # Wall-clock timers; single-run FDMC budget/Pareto tools (analysis_FDMC.ipynb)
+├── pricers/                              # Asian pricers (moment matching, MC, conditional MC)
+├── references/                           # Third-party reference notebook (P. Marchesi, 2025)
 ├── results/                              # Simulation datasets (up to N = 10^8)
 │   ├── benchmarks.csv                    # Analytical truth values
 │   ├── FDMC_results.csv                  # FDMC runs across 10 scales x 3 eps values
@@ -238,9 +238,9 @@ Greeks/
 │   ├── test_estimators.py                # Per-path statistics, seeding, general Fournié Gamma
 │   ├── test_metrics.py                   # Metrics and convergence validation tests
 │   └── test_short_maturity_call.py       # 1-Month Call and decoupled bandwidth validation
-├── analysis_malliavin_vs_FDMC.ipynb      # Main comparative notebook (33 executed cells)
-├── analysis_european_call_1M.ipynb       # 1M Call and terminal knock-out notebook (34 cells)
-├── analysis_smoothing_functions.ipynb    # Cutoff function topology & exotic extensions (21 cells)
+├── analysis_malliavin_vs_FDMC.ipynb      # Main comparative notebook
+├── analysis_european_call_1M.ipynb       # 1M Call and terminal knock-out notebook
+├── analysis_smoothing_functions.ipynb    # Cutoff function topology & exotic extensions
 ├── generate_notebook.py                  # Procedural builder for comparative notebook
 ├── generate_1M_call_analysis_notebook.py # Procedural builder for 1M Call & knock-out notebook
 ├── generate_smoothing_analysis_notebook.py# Procedural builder for smoothing topology notebook
@@ -284,7 +284,7 @@ Execute the complete automated unit test suite:
 ```bash
 python -m unittest discover tests
 ```
-*Expected output: All 36 tests pass in a few seconds.*
+*Expected output: All 31 tests pass in a few seconds.*
 
 ---
 

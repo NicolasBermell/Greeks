@@ -268,7 +268,7 @@ for vol in test_vols:
             N=10000, seed=42, num_reps_for_variance=15, variance_sample_size=5000
         )
         best_row = grid_temp.loc[grid_temp["gamma_var"].idxmin()]
-        opt_d = best_row["delta_strike"]
+        opt_d = best_row["bandwidth"]
         ratio = opt_d / natural_scale
 
         calib_records.append({

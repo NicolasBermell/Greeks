@@ -10,20 +10,10 @@ MALLIAVIN_N_SIMS_ARRAY = [10000, 100000, 250_000, 1000000, 2_000_000, 5_000_000,
 MALLIAVIN_SEED = 1984
 MALLIAVIN_RESULTS_FILE = "./results/malliavin_results.csv"
 
-# Simulation Parameters for Fournié Localized Malliavin (Option A Decoupled Bandwidths)
+# Simulation Parameters for Fournié Localized Malliavin
+# Bandwidths come from fournier_bandwidths(params) in malliavin_european_fournier.py.
 MALLIAVIN_FOURNIER_RESULTS_FILE = "./results/malliavin_fournier_results.csv"
 MALLIAVIN_FOURNIER_CUTOFF_TYPE = "gaussian"
-# Option A Decoupled Bandwidths: delta_d = 0.20*S0*sigma*sqrt(T), delta_g = 0.50*S0*sigma*sqrt(T), delta_v = 0.20*S0*sigma*sqrt(T)
-MALLIAVIN_FOURNIER_DELTA_STRIKE = {
-    "delta": 4.0,   # 0.20 * 100 * 0.20 * 1.0 = 4.0
-    "gamma": 10.0,  # 0.50 * 100 * 0.20 * 1.0 = 10.0
-    "vega": 4.0,    # 0.20 * 100 * 0.20 * 1.0 = 4.0
-}
-MALLIAVIN_FOURNIER_BARRIER_DELTA = {
-    "delta": 2.625,  # min(4.0, (H - K) / 2) = 2.625
-    "gamma": 2.625,  # min(10.0, (H - K) / 2) = 2.625
-    "vega": 2.625,   # min(4.0, (H - K) / 2) = 2.625
-}
 
 # Independent replications: R seeds per (method, product, N), each run with np.random.default_rng(seed).
 # Larger N is extrapolated with SE ∝ 1/sqrt(N) from the per-path variance instead of being simulated.

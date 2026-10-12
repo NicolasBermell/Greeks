@@ -21,22 +21,6 @@ from pricers.asians_MC import (
 # 1. Vanilla Asian Call Greeks
 # ==============================================================================
 
-def _delta_asian_call(
-    params: dict[str, Any],
-    eps: float = 0.01,
-    N: int = 10000,
-    seed: int = 42,
-    paths: np.ndarray | None = None,
-) -> float:
-    S0, K, T, r, q, sigma = params["S0"], params["K"], params["T"], params["r"], params["q"], params["sigma"]
-    freq = int(params.get("frequency", 12))
-    if paths is None:
-        paths = generate_asian_paths(T, freq, N, seed)
-
-    V_plus = MC_asian_call_option(S0 + eps, K, T, r, q, sigma, freq, seed, N, paths=paths)
-    V_minus = MC_asian_call_option(S0 - eps, K, T, r, q, sigma, freq, seed, N, paths=paths)
-    return float((V_plus - V_minus) / (2.0 * eps))
-
 
 def _gamma_asian_call(
     params: dict[str, Any],
@@ -106,22 +90,6 @@ FDMC_geeks_asian_call = FDMC_greeks_asian_call
 # 2. Digital Asian Call Greeks
 # ==============================================================================
 
-def _delta_asian_digital_call(
-    params: dict[str, Any],
-    eps: float = 0.01,
-    N: int = 10000,
-    seed: int = 42,
-    paths: np.ndarray | None = None,
-) -> float:
-    S0, K, T, r, q, sigma = params["S0"], params["K"], params["T"], params["r"], params["q"], params["sigma"]
-    freq = int(params.get("frequency", 12))
-    if paths is None:
-        paths = generate_asian_paths(T, freq, N, seed)
-
-    V_plus = MC_asian_digital_call_option(S0 + eps, K, T, r, q, sigma, freq, seed, N, paths=paths)
-    V_minus = MC_asian_digital_call_option(S0 - eps, K, T, r, q, sigma, freq, seed, N, paths=paths)
-    return float((V_plus - V_minus) / (2.0 * eps))
-
 
 def _gamma_asian_digital_call(
     params: dict[str, Any],
@@ -190,23 +158,6 @@ FDMC_geeks_asian_digital_call = FDMC_greeks_asian_digital_call
 # ==============================================================================
 # 3. Barrier Up-and-Out Asian Call Greeks
 # ==============================================================================
-
-def _delta_asian_barrier_up_and_out_call(
-    params: dict[str, Any],
-    eps: float = 0.01,
-    N: int = 10000,
-    seed: int = 42,
-    paths: np.ndarray | None = None,
-) -> float:
-    S0, K, T, r, q, sigma = params["S0"], params["K"], params["T"], params["r"], params["q"], params["sigma"]
-    H = float(params.get("H", 120.0))
-    freq = int(params.get("frequency", 12))
-    if paths is None:
-        paths = generate_asian_paths(T, freq, N, seed)
-
-    V_plus = MC_asian_barrier_up_and_out_call_option(S0 + eps, K, T, r, q, sigma, H, freq, seed, N, paths=paths)
-    V_minus = MC_asian_barrier_up_and_out_call_option(S0 - eps, K, T, r, q, sigma, H, freq, seed, N, paths=paths)
-    return float((V_plus - V_minus) / (2.0 * eps))
 
 
 def _gamma_asian_barrier_up_and_out_call(
@@ -401,4 +352,3 @@ def compute_all_asian_conditional_FDMC_greeks(
         return FDMC_conditional_greeks_asian_digital_call(params, eps, N, seed, paths)
     else:
         return FDMC_conditional_greeks_asian_call(params, eps, N, seed, paths)
-

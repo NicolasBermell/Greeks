@@ -1,6 +1,10 @@
-# compile python files
-__pycache__/*
-*.cpython
-*.pyc
-greeks.egg-info
-greeks.egg-info/*
+# Python bytecode and build metadata
+__pycache__/
+*.py[cod]
+*.egg-info/
+
+# Virtual environment
+.venv/
+
+# macOS
+.DS_Store

@@ -18,15 +18,16 @@ from Methods.sampling import GREEKS
 from products import *
 from config import *
 
-# (product params, FDMC fn, standard Malliavin fn, Fournié fn, Fournié bandwidths)
+# (product params, FDMC fn, standard Malliavin fn, Fournié fn). Fournié uses the default
+# bandwidths of fournier_bandwidths(params), capped at (H - K) / 2 for the knock-out.
 EUROPEAN_PRODUCTS = [
     (example_european_call_ATM, FDMC_geeks_european_call, malliavin_greeks_european_call,
-     malliavin_fournier_greeks_european_call, MALLIAVIN_FOURNIER_DELTA_STRIKE),
+     malliavin_fournier_greeks_european_call),
     (example_european_digital_ATM, FDMC_geeks_european_digital_call, malliavin_greeks_european_digital_call,
-     malliavin_fournier_greeks_european_digital_call, MALLIAVIN_FOURNIER_DELTA_STRIKE),
+     malliavin_fournier_greeks_european_digital_call),
     (example_european_call_terminal_knockout, FDMC_geeks_european_barrier_up_and_out_call,
      malliavin_greeks_european_barrier_up_and_out_call,
-     malliavin_fournier_greeks_european_barrier_up_and_out_call, MALLIAVIN_FOURNIER_BARRIER_DELTA),
+     malliavin_fournier_greeks_european_barrier_up_and_out_call),
 ]
 
 # Each Greek is followed by its per-path variance and standard error.
@@ -48,7 +49,7 @@ def run_all_FDMC():
             print(f"running FDMC N={N}, eps={eps}")
             current_results = _results_frame({
                 params["name"]: fdmc_fn(params, eps=eps, N=N, seed=FDMC_SEED, return_stats=True)
-                for params, fdmc_fn, _, _, _ in EUROPEAN_PRODUCTS
+                for params, fdmc_fn, _, _ in EUROPEAN_PRODUCTS
             })
             current_results["Method"] = "FDMC"
             current_results["N"] = N
@@ -67,7 +68,7 @@ def run_all_malliavin():
         print(f"running Standard Malliavin N={N}")
         current_results = _results_frame({
             params["name"]: mall_fn(params, N=N, seed=MALLIAVIN_SEED, return_stats=True)
-            for params, _, mall_fn, _, _ in EUROPEAN_PRODUCTS
+            for params, _, mall_fn, _ in EUROPEAN_PRODUCTS
         })
         current_results["Method"] = "Malliavin"
         current_results["N"] = N
@@ -84,15 +85,13 @@ def run_all_malliavin_fournier(cutoff_type: str = MALLIAVIN_FOURNIER_CUTOFF_TYPE
     for N in MALLIAVIN_N_SIMS_ARRAY:
         print(f"running Fournié Localized Malliavin N={N}, cutoff={cutoff_type}")
         current_results = _results_frame({
-            params["name"]: four_fn(
-                params, N=N, seed=MALLIAVIN_SEED, cutoff_type=cutoff_type, delta_strike=bandwidths, return_stats=True
-            )
-            for params, _, _, four_fn, bandwidths in EUROPEAN_PRODUCTS
+            params["name"]: four_fn(params, N=N, seed=MALLIAVIN_SEED, cutoff_type=cutoff_type, return_stats=True)
+            for params, _, _, four_fn in EUROPEAN_PRODUCTS
         })
         current_results["Method"] = "Malliavin Fournié"
         current_results["N"] = N
         current_results["cutoff_type"] = cutoff_type
-        current_results["delta_strike"] = "decoupled"
+        current_results["bandwidth"] = "default"
 
         results = concat([results, current_results])
 

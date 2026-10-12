@@ -70,34 +70,6 @@ class TestMetricsAndComparisons(unittest.TestCase):
                 })
         self.fournier_df = pd.DataFrame(four_rows)
 
-        # Timing DataFrames
-        self.fdmc_timing = pd.DataFrame([
-            {"Product": "Call European ATM", "N": 10_000, "time_ms_mean": 15.0, "time_ms_std": 1.0, "ms_per_10k_paths": 15.0},
-            {"Product": "Call European ATM", "N": 100_000, "time_ms_mean": 150.0, "time_ms_std": 5.0, "ms_per_10k_paths": 15.0},
-            {"Product": "Call European ATM", "N": 1_000_000, "time_ms_mean": 1500.0, "time_ms_std": 20.0, "ms_per_10k_paths": 15.0},
-            {"Product": "Digital European ATM", "N": 10_000, "time_ms_mean": 15.0, "time_ms_std": 1.0, "ms_per_10k_paths": 15.0},
-            {"Product": "Digital European ATM", "N": 100_000, "time_ms_mean": 150.0, "time_ms_std": 5.0, "ms_per_10k_paths": 15.0},
-            {"Product": "Digital European ATM", "N": 1_000_000, "time_ms_mean": 1500.0, "time_ms_std": 20.0, "ms_per_10k_paths": 15.0},
-        ])
-
-        self.mal_timing = pd.DataFrame([
-            {"Product": "Call European ATM", "N": 10_000, "time_ms_mean": 8.0, "time_ms_std": 0.5, "ms_per_10k_paths": 8.0},
-            {"Product": "Call European ATM", "N": 100_000, "time_ms_mean": 80.0, "time_ms_std": 2.0, "ms_per_10k_paths": 8.0},
-            {"Product": "Call European ATM", "N": 1_000_000, "time_ms_mean": 800.0, "time_ms_std": 10.0, "ms_per_10k_paths": 8.0},
-            {"Product": "Digital European ATM", "N": 10_000, "time_ms_mean": 8.0, "time_ms_std": 0.5, "ms_per_10k_paths": 8.0},
-            {"Product": "Digital European ATM", "N": 100_000, "time_ms_mean": 80.0, "time_ms_std": 2.0, "ms_per_10k_paths": 8.0},
-            {"Product": "Digital European ATM", "N": 1_000_000, "time_ms_mean": 800.0, "time_ms_std": 10.0, "ms_per_10k_paths": 8.0},
-        ])
-
-        self.four_timing = pd.DataFrame([
-            {"Product": "Call European ATM", "N": 10_000, "time_ms_mean": 10.0, "time_ms_std": 0.5, "ms_per_10k_paths": 10.0},
-            {"Product": "Call European ATM", "N": 100_000, "time_ms_mean": 100.0, "time_ms_std": 2.0, "ms_per_10k_paths": 10.0},
-            {"Product": "Call European ATM", "N": 1_000_000, "time_ms_mean": 1000.0, "time_ms_std": 10.0, "ms_per_10k_paths": 10.0},
-            {"Product": "Digital European ATM", "N": 10_000, "time_ms_mean": 10.0, "time_ms_std": 0.5, "ms_per_10k_paths": 10.0},
-            {"Product": "Digital European ATM", "N": 100_000, "time_ms_mean": 100.0, "time_ms_std": 2.0, "ms_per_10k_paths": 10.0},
-            {"Product": "Digital European ATM", "N": 1_000_000, "time_ms_mean": 1000.0, "time_ms_std": 10.0, "ms_per_10k_paths": 10.0},
-        ])
-
     def test_compute_error_metrics(self):
         """Test compute_error_metrics calculations, signed bias, and NaN handling."""
         metrics = utils.compute_error_metrics(self.fdmc_df, self.benchmarks_df)
@@ -214,50 +186,6 @@ class TestMetricsAndComparisons(unittest.TestCase):
         self.assertIn("Ratio (FDMC/Std Mal)", comp_3way.columns)
         self.assertIn("Accuracy Ratio (FDMC/Mal)", comp_3way.columns)
 
-    def test_find_min_acceptable_N_comparison(self):
-        """Test finding minimum sample size and speedups across methods."""
-        f_met = utils.compute_error_metrics(self.fdmc_df, self.benchmarks_df)
-        m_met = utils.compute_error_metrics(self.malliavin_df, self.benchmarks_df)
-        four_met = utils.compute_error_metrics(self.fournier_df, self.benchmarks_df)
-
-        # Without Fournié
-        res_2way = utils.find_min_acceptable_N_comparison(
-            f_met, m_met,
-            fdmc_timing_df=self.fdmc_timing,
-            malliavin_timing_df=self.mal_timing,
-        )
-        self.assertIn("FDMC Min N*", res_2way.columns)
-        self.assertIn("Malliavin Min N*", res_2way.columns)
-        self.assertIn("Speedup (FDMC/Mal Time)", res_2way.columns)
-
-        # With Fournié
-        res_3way = utils.find_min_acceptable_N_comparison(
-            f_met, m_met,
-            fdmc_timing_df=self.fdmc_timing,
-            malliavin_timing_df=self.mal_timing,
-            fournier_metrics_df=four_met,
-            fournier_timing_df=self.four_timing,
-        )
-        self.assertIn("Fournié Min N*", res_3way.columns)
-        self.assertIn("Fournié Time (ms)", res_3way.columns)
-        self.assertIn("Speedup (FDMC/Fournié Time)", res_3way.columns)
-        self.assertIn("Fournié Speedup vs Mal", res_3way.columns)
-
-    def test_empirical_convergence_rate(self):
-        """Test asymptotic empirical convergence rate alpha fitting."""
-        # Create pure O(N^-0.5) data
-        n_vals = [10_000, 40_000, 160_000, 640_000, 2_560_000]
-        err_vals = [1.0 / np.sqrt(n) for n in n_vals]
-        df = pd.DataFrame({
-            "Product": "Call European ATM",
-            "N": n_vals,
-            "gamma_abs_error": err_vals,
-        })
-
-        fit = utils.compute_empirical_convergence_rate(df, "Call European ATM", greek="gamma")
-        self.assertAlmostEqual(fit["alpha"], 0.5, places=3)
-        self.assertAlmostEqual(fit["r_squared"], 1.0, places=3)
-
     def test_load_simulation_results_isolated(self):
         """Test that load_simulation_results can load FDMC and benchmarks without crashing."""
         b_df, f_df = utils.load_simulation_results(
@@ -283,34 +211,13 @@ class TestMetricsAndComparisons(unittest.TestCase):
         )
         self.assertEqual(len(summary), 9)  # 3 products * 3 greeks
 
-    def test_summarize_cutoff_and_delta(self):
-        """Test cutoff function and delta sensitivity summarizers."""
-        bench = {"delta": 0.5868, "gamma": 0.0189, "vega": 37.90}
-        cutoff_dict = {
-            "gaussian": {"delta": 0.5870, "gamma": 0.0190, "vega": 37.91},
-            "cubic": {"delta": 0.5865, "gamma": 0.0188, "vega": 37.89},
-        }
-        df_cutoff = utils.summarize_cutoff_functions(cutoff_dict, bench)
-        self.assertEqual(len(df_cutoff), 2)
-        self.assertIn("Delta Abs Error", df_cutoff.columns)
-        self.assertIn("Gamma Bias", df_cutoff.columns)
-
-        delta_dict = {
-            2.0: {"delta": 0.5870, "gamma": 0.0190, "vega": 37.91},
-            5.0: {"delta": 0.5866, "gamma": 0.0189, "vega": 37.90},
-        }
-        df_delta = utils.summarize_delta_strike_sensitivities(delta_dict, bench)
-        self.assertEqual(len(df_delta), 2)
-        self.assertIn("Delta Strike (δ)", df_delta.columns)
-        self.assertIn("Vega Abs Error", df_delta.columns)
-
     def test_find_optimal_delta(self):
         """Test finding optimal delta from smoothing grid."""
         grid_data = pd.DataFrame([
-            {"cutoff_type": "gaussian", "delta_strike": 2.0, "gamma": 0.0191, "gamma_abs_error": 0.0002, "gamma_var": 0.00001, "gamma_std": 0.003},
-            {"cutoff_type": "gaussian", "delta_strike": 5.0, "gamma": 0.0190, "gamma_abs_error": 0.0001, "gamma_var": 0.000005, "gamma_std": 0.0022},
-            {"cutoff_type": "cubic", "delta_strike": 2.0, "gamma": 0.0192, "gamma_abs_error": 0.0003, "gamma_var": 0.00002, "gamma_std": 0.004},
-            {"cutoff_type": "cubic", "delta_strike": 5.0, "gamma": 0.0189, "gamma_abs_error": 0.00005, "gamma_var": 0.000008, "gamma_std": 0.0028},
+            {"cutoff_type": "gaussian", "bandwidth": 2.0, "gamma": 0.0191, "gamma_abs_error": 0.0002, "gamma_var": 0.00001, "gamma_std": 0.003},
+            {"cutoff_type": "gaussian", "bandwidth": 5.0, "gamma": 0.0190, "gamma_abs_error": 0.0001, "gamma_var": 0.000005, "gamma_std": 0.0022},
+            {"cutoff_type": "cubic", "bandwidth": 2.0, "gamma": 0.0192, "gamma_abs_error": 0.0003, "gamma_var": 0.00002, "gamma_std": 0.004},
+            {"cutoff_type": "cubic", "bandwidth": 5.0, "gamma": 0.0189, "gamma_abs_error": 0.00005, "gamma_var": 0.000008, "gamma_std": 0.0028},
         ])
 
         opt_var = utils.find_optimal_delta(grid_data, greek="gamma", criterion="var")
@@ -324,46 +231,20 @@ class TestMetricsAndComparisons(unittest.TestCase):
         cubic_opt = opt_err[opt_err["Cutoff Function"] == "cubic"].iloc[0]
         self.assertEqual(cubic_opt["Optimal δ* (abs_error)"], 5.0)
 
-    def test_construct_comparative_pareto_dataset(self):
-        """Test comparative pareto dataset construction including Fournié."""
-        f_met = utils.compute_error_metrics(self.fdmc_df, self.benchmarks_df)
-        m_met = utils.compute_error_metrics(self.malliavin_df, self.benchmarks_df)
-        four_met = utils.compute_error_metrics(self.fournier_df, self.benchmarks_df)
+    def test_fournier_bandwidths(self):
+        """Default per-Greek and coupled bandwidths, capped at (H - K) / 2 for the knock-out."""
+        from Methods.Malliavin import fournier_bandwidths
+        from products import example_european_call_ATM, example_european_call_terminal_knockout
 
-        # 2-way Pareto
-        p_2way = utils.construct_comparative_pareto_dataset(
-            f_met, m_met, self.fdmc_timing, self.mal_timing
-        )
-        self.assertIn("Method", p_2way.columns)
-        self.assertEqual(set(p_2way["Method"].unique()), {"FDMC", "Malliavin"})
-        self.assertIn("sim_value", p_2way.columns)
-        self.assertIn("fdmc_value", p_2way.columns)
+        self.assertEqual(fournier_bandwidths(example_european_call_ATM), {"delta": 4.0, "gamma": 10.0, "vega": 4.0})
+        for b in fournier_bandwidths(example_european_call_ATM, coupled=True).values():
+            self.assertAlmostEqual(b, 8.0)
+        for b in fournier_bandwidths(example_european_call_terminal_knockout).values():
+            self.assertAlmostEqual(b, 2.625)
 
-        # 3-way Pareto
-        p_3way = utils.construct_comparative_pareto_dataset(
-            f_met, m_met, self.fdmc_timing, self.mal_timing,
-            fournier_metrics_df=four_met, fournier_timing_df=self.four_timing,
-        )
-        self.assertEqual(set(p_3way["Method"].unique()), {"FDMC", "Malliavin", "Fournié Malliavin"})
-
-    def test_compute_fournier_delta(self):
-        """Test Fournié delta gap calculation for vanilla, digital, and barrier options."""
-        from Methods.Malliavin import compute_fournier_delta
-        from products import example_european_call_ATM, example_european_digital_ATM, example_european_call_terminal_knockout
-
-        d_call = compute_fournier_delta(example_european_call_ATM, is_barrier=False)
-        d_dig = compute_fournier_delta(example_european_digital_ATM, is_barrier=False)
-        d_bar = compute_fournier_delta(example_european_call_terminal_knockout, is_barrier=True)
-
-        self.assertAlmostEqual(d_call, 8.0, places=6)
-        self.assertAlmostEqual(d_dig, 8.0, places=6)
-        self.assertAlmostEqual(d_bar, 2.625, places=6)
-
-        # Custom barrier with wide corridor
-        wide_bar = {"S0": 100.0, "sigma": 0.2, "T": 1.0, "K": 100.0, "H": 130.0}
-        d_wide = compute_fournier_delta(wide_bar, is_barrier=True)
-        # 0.40 * 100 * 0.2 * 1 = 8.0 < (130 - 100) / 2 = 15.0
-        self.assertAlmostEqual(d_wide, 8.0, places=6)
+        # Wide interval: (130 - 100) / 2 = 15 does not bind
+        wide = {"S0": 100.0, "sigma": 0.2, "T": 1.0, "K": 100.0, "H": 130.0}
+        self.assertAlmostEqual(fournier_bandwidths(wide)["gamma"], 10.0)
 
     def test_localized_digital_gamma_and_cutoff_second_deriv(self):
         """Test cutoff analytical second derivatives and distinct localized digital gamma."""
@@ -380,33 +261,18 @@ class TestMetricsAndComparisons(unittest.TestCase):
         K, delta, eps = 100.0, 8.0, 1e-5
         x = np.array([90.0, 95.0, 100.0, 105.0, 110.0])
         for ctype in ["gaussian", "quintic", "cauchy"]:
-            psi, p1, p2 = get_cutoff(x, K, delta=delta, cutoff_type=ctype, return_second_deriv=True)
-            psi_p, _ = get_cutoff(x + eps, K, delta=delta, cutoff_type=ctype)
-            psi_m, _ = get_cutoff(x - eps, K, delta=delta, cutoff_type=ctype)
+            psi, p1, p2 = get_cutoff(x, K, bandwidth=delta, cutoff_type=ctype, return_second_deriv=True)
+            psi_p, _ = get_cutoff(x + eps, K, bandwidth=delta, cutoff_type=ctype)
+            psi_m, _ = get_cutoff(x - eps, K, bandwidth=delta, cutoff_type=ctype)
             num_p2 = (psi_p - 2.0 * psi + psi_m) / (eps ** 2)
             np.testing.assert_allclose(p2, num_p2, rtol=1e-3, atol=1e-4)
 
         # 2. Verify Fournié localized digital gamma differs from unlocalized standard Malliavin
         std_res = malliavin_greeks_european_digital_call(example_european_digital_ATM, N=50_000, seed=123)
         four_res = malliavin_fournier_greeks_european_digital_call(
-            example_european_digital_ATM, N=50_000, seed=123, cutoff_type="gaussian", delta_strike=8.0
+            example_european_digital_ATM, N=50_000, seed=123, cutoff_type="gaussian", bandwidth=8.0
         )
         self.assertNotEqual(std_res["gamma"], four_res["gamma"])
-
-    def test_budget_comparison_with_2500ms(self):
-        """Test that evaluate_fixed_cpu_budget_comparison includes 2500ms and 5 budget tiers."""
-        f_met = utils.compute_error_metrics(self.fdmc_df, self.benchmarks_df)
-        m_met = utils.compute_error_metrics(self.malliavin_df, self.benchmarks_df)
-        four_met = utils.compute_error_metrics(self.fournier_df, self.benchmarks_df)
-
-        comp = utils.evaluate_fixed_cpu_budget_comparison(
-            f_met, m_met, self.fdmc_timing, self.mal_timing,
-            fournier_metrics_df=four_met, fournier_timing_df=self.four_timing,
-        )
-        budgets = sorted(comp["Budget (ms)"].unique())
-        self.assertEqual(budgets, [250.0, 500.0, 1000.0, 2500.0, 5000.0])
-        self.assertIn("Fournié Abs Error", comp.columns)
-        self.assertIn("Malliavin Abs Error", comp.columns)
 
     def test_plot_runtime_vs_simulations(self):
         """Test that plot_runtime_vs_simulations creates a valid matplotlib Figure."""
@@ -418,26 +284,6 @@ class TestMetricsAndComparisons(unittest.TestCase):
         self.assertEqual(len(fig.axes), len(joint["Product"].unique()))
         import matplotlib.pyplot as plt
         plt.close(fig)
-
-    def test_plot_budget_simulations_vs_time(self):
-        """Test that plot_budget_simulations_vs_time creates a valid matplotlib Figure for bars and lines."""
-        f_met = utils.compute_error_metrics(self.fdmc_df, self.benchmarks_df)
-        m_met = utils.compute_error_metrics(self.malliavin_df, self.benchmarks_df)
-        four_met = utils.compute_error_metrics(self.fournier_df, self.benchmarks_df)
-
-        comp = utils.evaluate_fixed_cpu_budget_comparison(
-            f_met, m_met, self.fdmc_timing, self.mal_timing,
-            budgets_ms=[250.0, 500.0],
-            fournier_metrics_df=four_met, fournier_timing_df=self.four_timing,
-        )
-        import matplotlib.pyplot as plt
-        fig_bars = utils.plot_budget_simulations_vs_time(comp, chart_type="bars")
-        self.assertIsNotNone(fig_bars)
-        plt.close(fig_bars)
-
-        fig_lines = utils.plot_budget_simulations_vs_time(comp, chart_type="lines")
-        self.assertIsNotNone(fig_lines)
-        plt.close(fig_lines)
 
 
 if __name__ == "__main__":

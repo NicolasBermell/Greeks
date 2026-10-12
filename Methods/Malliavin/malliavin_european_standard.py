@@ -37,7 +37,8 @@ from __future__ import annotations
 
 import numpy as np
 
-from Methods.sampling import estimate_from_samples, generate_paths
+from Methods import payoffs
+from Methods.sampling import estimate_from_samples, generate_paths, simulate_terminal_spot
 
 
 def compute_malliavin_weights(
@@ -69,43 +70,6 @@ def compute_malliavin_weights(
     return pi_delta, pi_gamma, pi_vega
 
 
-def simulate_terminal_spot(
-    S0: float,
-    T: float,
-    r: float,
-    q: float,
-    sigma: float,
-    W_T: np.ndarray,
-) -> np.ndarray:
-    """Simulates terminal asset prices S_T under the Black-Scholes model.
-
-    Args:
-        S0 (float): Initial underlying asset price.
-        T (float): Time to maturity.
-        r (float): Risk-free interest rate.
-        q (float): Dividend yield.
-        sigma (float): Annualized volatility.
-        W_T (np.ndarray): Brownian motion values W_T ~ N(0, T).
-
-    Returns:
-        np.ndarray: Simulated terminal prices S_T.
-    """
-    drift = (r - q - 0.5 * sigma**2) * T
-    return S0 * np.exp(drift + sigma * W_T)
-
-
-def _payoff_call(S_T: np.ndarray, params: dict[str, float]) -> np.ndarray:
-    return np.maximum(S_T - params["K"], 0.0)
-
-
-def _payoff_digital_call(S_T: np.ndarray, params: dict[str, float]) -> np.ndarray:
-    return (S_T > params["K"]).astype(float)
-
-
-def _payoff_call_terminal_knockout(S_T: np.ndarray, params: dict[str, float]) -> np.ndarray:
-    return np.maximum(S_T - params["K"], 0.0) * (S_T <= params["H"])
-
-
 def malliavin_samples_european(payoff_fn, params: dict[str, float], W_T: np.ndarray) -> dict[str, np.ndarray]:
     """Per-path discounted samples e^{-rT} * Phi(S_T) * W_theta for Delta, Gamma and Vega."""
     S0, T, r, q, sigma = params["S0"], params["T"], params["r"], params["q"], params["sigma"]
@@ -130,58 +94,6 @@ def _malliavin_greeks(payoff_fn, params, N, seed, paths, return_stats) -> dict[s
 # 1. Vanilla European Call Greeks
 # ==============================================================================
 
-def _delta_malliavin_european_call(
-    params: dict[str, float],
-    N: int = 10000,
-    seed: int = 42,
-    paths: np.ndarray | None = None,
-) -> float:
-    """Computes Delta of a European call using Malliavin Monte Carlo."""
-    S0, K, T, r, q, sigma = params["S0"], params["K"], params["T"], params["r"], params["q"], params["sigma"]
-    if paths is None:
-        paths = generate_paths(T, N, seed)
-
-    S_T = simulate_terminal_spot(S0, T, r, q, sigma, paths)
-    payoff = np.maximum(S_T - K, 0.0)
-    pi_delta = paths / (S0 * sigma * T)
-    return float(np.exp(-r * T) * np.mean(payoff * pi_delta))
-
-
-def _gamma_malliavin_european_call(
-    params: dict[str, float],
-    N: int = 10000,
-    seed: int = 42,
-    paths: np.ndarray | None = None,
-) -> float:
-    """Computes Gamma of a European call using Malliavin Monte Carlo."""
-    S0, K, T, r, q, sigma = params["S0"], params["K"], params["T"], params["r"], params["q"], params["sigma"]
-    if paths is None:
-        paths = generate_paths(T, N, seed)
-
-    S_T = simulate_terminal_spot(S0, T, r, q, sigma, paths)
-    payoff = np.maximum(S_T - K, 0.0)
-    numerator = paths**2 - sigma * T * paths - T
-    pi_gamma = numerator / ((S0 * sigma * T)**2)
-    return float(np.exp(-r * T) * np.mean(payoff * pi_gamma))
-
-
-def _vega_malliavin_european_call(
-    params: dict[str, float],
-    N: int = 10000,
-    seed: int = 42,
-    paths: np.ndarray | None = None,
-) -> float:
-    """Computes Vega of a European call using Malliavin Monte Carlo."""
-    S0, K, T, r, q, sigma = params["S0"], params["K"], params["T"], params["r"], params["q"], params["sigma"]
-    if paths is None:
-        paths = generate_paths(T, N, seed)
-
-    S_T = simulate_terminal_spot(S0, T, r, q, sigma, paths)
-    payoff = np.maximum(S_T - K, 0.0)
-    numerator = paths**2 - sigma * T * paths - T
-    pi_vega = numerator / (sigma * T)
-    return float(np.exp(-r * T) * np.mean(payoff * pi_vega))
-
 
 def malliavin_greeks_european_call(
     params: dict[str, float],
@@ -204,64 +116,12 @@ def malliavin_greeks_european_call(
     Returns:
         dict[str, float]: {'delta': ..., 'gamma': ..., 'vega': ...}
     """
-    return _malliavin_greeks(_payoff_call, params, N, seed, paths, return_stats)
+    return _malliavin_greeks(payoffs.call, params, N, seed, paths, return_stats)
 
 
 # ==============================================================================
 # 2. Digital European Call Greeks
 # ==============================================================================
-
-def _delta_malliavin_european_digital_call(
-    params: dict[str, float],
-    N: int = 10000,
-    seed: int = 42,
-    paths: np.ndarray | None = None,
-) -> float:
-    """Computes Delta of a European digital call using Malliavin Monte Carlo."""
-    S0, K, T, r, q, sigma = params["S0"], params["K"], params["T"], params["r"], params["q"], params["sigma"]
-    if paths is None:
-        paths = generate_paths(T, N, seed)
-
-    S_T = simulate_terminal_spot(S0, T, r, q, sigma, paths)
-    payoff = (S_T > K).astype(float)
-    pi_delta = paths / (S0 * sigma * T)
-    return float(np.exp(-r * T) * np.mean(payoff * pi_delta))
-
-
-def _gamma_malliavin_european_digital_call(
-    params: dict[str, float],
-    N: int = 10000,
-    seed: int = 42,
-    paths: np.ndarray | None = None,
-) -> float:
-    """Computes Gamma of a European digital call using Malliavin Monte Carlo."""
-    S0, K, T, r, q, sigma = params["S0"], params["K"], params["T"], params["r"], params["q"], params["sigma"]
-    if paths is None:
-        paths = generate_paths(T, N, seed)
-
-    S_T = simulate_terminal_spot(S0, T, r, q, sigma, paths)
-    payoff = (S_T > K).astype(float)
-    numerator = paths**2 - sigma * T * paths - T
-    pi_gamma = numerator / ((S0 * sigma * T)**2)
-    return float(np.exp(-r * T) * np.mean(payoff * pi_gamma))
-
-
-def _vega_malliavin_european_digital_call(
-    params: dict[str, float],
-    N: int = 10000,
-    seed: int = 42,
-    paths: np.ndarray | None = None,
-) -> float:
-    """Computes Vega of a European digital call using Malliavin Monte Carlo."""
-    S0, K, T, r, q, sigma = params["S0"], params["K"], params["T"], params["r"], params["q"], params["sigma"]
-    if paths is None:
-        paths = generate_paths(T, N, seed)
-
-    S_T = simulate_terminal_spot(S0, T, r, q, sigma, paths)
-    payoff = (S_T > K).astype(float)
-    numerator = paths**2 - sigma * T * paths - T
-    pi_vega = numerator / (sigma * T)
-    return float(np.exp(-r * T) * np.mean(payoff * pi_vega))
 
 
 def malliavin_greeks_european_digital_call(
@@ -286,70 +146,12 @@ def malliavin_greeks_european_digital_call(
     Returns:
         dict[str, float]: {'delta': ..., 'gamma': ..., 'vega': ...}
     """
-    return _malliavin_greeks(_payoff_digital_call, params, N, seed, paths, return_stats)
+    return _malliavin_greeks(payoffs.digital_call, params, N, seed, paths, return_stats)
 
 
 # ==============================================================================
 # 3. Call with Terminal Knock-Out Greeks
 # ==============================================================================
-
-def _delta_malliavin_european_barrier_up_and_out_call(
-    params: dict[str, float],
-    N: int = 10000,
-    seed: int = 42,
-    paths: np.ndarray | None = None,
-) -> float:
-    """Computes Delta of a European barrier up-and-out call using Malliavin Monte Carlo."""
-    S0, K, T, r, q, sigma = params["S0"], params["K"], params["T"], params["r"], params["q"], params["sigma"]
-    H = params.get("H", 105.25)
-    if paths is None:
-        paths = generate_paths(T, N, seed)
-
-    S_T = simulate_terminal_spot(S0, T, r, q, sigma, paths)
-    payoff = np.maximum(S_T - K, 0.0)
-    payoff[S_T > H] = 0.0
-    pi_delta = paths / (S0 * sigma * T)
-    return float(np.exp(-r * T) * np.mean(payoff * pi_delta))
-
-
-def _gamma_malliavin_european_barrier_up_and_out_call(
-    params: dict[str, float],
-    N: int = 10000,
-    seed: int = 42,
-    paths: np.ndarray | None = None,
-) -> float:
-    """Computes Gamma of a European barrier up-and-out call using Malliavin Monte Carlo."""
-    S0, K, T, r, q, sigma = params["S0"], params["K"], params["T"], params["r"], params["q"], params["sigma"]
-    H = params.get("H", 105.25)
-    if paths is None:
-        paths = generate_paths(T, N, seed)
-
-    S_T = simulate_terminal_spot(S0, T, r, q, sigma, paths)
-    payoff = np.maximum(S_T - K, 0.0)
-    payoff[S_T > H] = 0.0
-    numerator = paths**2 - sigma * T * paths - T
-    pi_gamma = numerator / ((S0 * sigma * T)**2)
-    return float(np.exp(-r * T) * np.mean(payoff * pi_gamma))
-
-
-def _vega_malliavin_european_barrier_up_and_out_call(
-    params: dict[str, float],
-    N: int = 10000,
-    seed: int = 42,
-    paths: np.ndarray | None = None,
-) -> float:
-    """Computes Vega of a European barrier up-and-out call using Malliavin Monte Carlo."""
-    S0, K, T, r, q, sigma = params["S0"], params["K"], params["T"], params["r"], params["q"], params["sigma"]
-    H = params.get("H", 105.25)
-    if paths is None:
-        paths = generate_paths(T, N, seed)
-
-    S_T = simulate_terminal_spot(S0, T, r, q, sigma, paths)
-    payoff = np.maximum(S_T - K, 0.0)
-    payoff[S_T > H] = 0.0
-    numerator = paths**2 - sigma * T * paths - T
-    pi_vega = numerator / (sigma * T)
-    return float(np.exp(-r * T) * np.mean(payoff * pi_vega))
 
 
 def malliavin_greeks_european_barrier_up_and_out_call(
@@ -359,7 +161,7 @@ def malliavin_greeks_european_barrier_up_and_out_call(
     paths: np.ndarray | None = None,
     return_stats: bool = False,
 ) -> dict[str, float]:
-    """Computes all Greeks (Delta, Gamma, Vega) for a Terminal Barrier Up-and-Out Call jointly.
+    """Computes all Greeks (Delta, Gamma, Vega) for a call with terminal knock-out jointly.
 
     Payoff is max(S_T - K, 0) * 1_{S_T <= H}. The jump discontinuity at H causes
     catastrophic finite difference issues in FDMC, but is handled smoothly by Malliavin weights.
@@ -374,55 +176,4 @@ def malliavin_greeks_european_barrier_up_and_out_call(
     Returns:
         dict[str, float]: {'delta': ..., 'gamma': ..., 'vega': ...}
     """
-    return _malliavin_greeks(_payoff_call_terminal_knockout, params, N, seed, paths, return_stats)
-
-
-# ==============================================================================
-# 4. Multi-Product Greeks Suite
-# ==============================================================================
-
-
-def malliavin_all_greeks_european(
-    params: dict[str, float],
-    N: int = 10000,
-    seed: int = 42,
-    paths: np.ndarray | None = None,
-) -> dict[str, dict[str, float]]:
-    """Calculates all Greeks for Call, Digital Call, and Barrier Up-and-Out options.
-
-    Generates paths W_T once at the top level so that all 3 products and their
-    respective Greeks share the exact same underlying simulation paths (Common Random Numbers).
-
-    Args:
-        params: Dictionary containing option parameters (S0, K, T, r, q, sigma, optional H).
-        N: Number of Monte Carlo simulations.
-        seed: Random seed for reproducibility.
-        paths: Optional pre-generated Brownian motion increments W_T.
-
-    Returns:
-        dict[str, dict[str, float]]: Dictionary mapping product key to its Greeks dict.
-    """
-    if paths is None:
-        paths = generate_paths(params["T"], N, seed)
-
-    return {
-        "call": malliavin_greeks_european_call(params, N=N, seed=seed, paths=paths),
-        "digital": malliavin_greeks_european_digital_call(params, N=N, seed=seed, paths=paths),
-        "barrier": malliavin_greeks_european_barrier_up_and_out_call(params, N=N, seed=seed, paths=paths),
-    }
-
-
-if __name__ == "__main__":
-    test_params = {
-        "S0": 100.0,
-        "K": 100.0,
-        "T": 1.0,
-        "r": 0.05,
-        "q": 0.02,
-        "sigma": 0.20,
-        "H": 105.25,
-    }
-    print("Malliavin All Greeks test (N=100,000):")
-    results = malliavin_all_greeks_european(test_params, N=100000)
-    for prod, greeks in results.items():
-        print(f"{prod}: {greeks}")
+    return _malliavin_greeks(payoffs.call_terminal_knockout, params, N, seed, paths, return_stats)

@@ -90,20 +90,16 @@ from Methods.Analytic.europeans import (
     gamma_barrier_up_and_out_call,
     vega_barrier_up_and_out_call,
 )
-from Methods.Malliavin.malliavin_european_standard import (
-    generate_paths,
-    simulate_terminal_spot,
-    compute_malliavin_weights,
-    malliavin_greeks_european_call,
-    malliavin_greeks_european_barrier_up_and_out_call,
-)
-from Methods.Malliavin.malliavin_european_fournier import (
+from Methods import payoffs
+from Methods.sampling import generate_paths, simulate_terminal_spot
+from Methods.Malliavin import (
+    fournier_bandwidths,
     get_cutoff,
-    compute_fournier_delta,
-    malliavin_fournier_greeks_european_call,
     malliavin_fournier_greeks_european_barrier_up_and_out_call,
+    malliavin_fournier_samples_european_call,
+    malliavin_fournier_samples_european_call_terminal_knockout,
+    malliavin_samples_european,
 )
-from pricers.europeans_MC import MC_european_call_option
 
 # Configure publication-quality visual styling
 plt.rcParams.update({
@@ -186,7 +182,7 @@ ax.axvline(K, color="#2b2d42", linestyle=":", linewidth=2.0, label=f"Strike $K =
 
 # Overlay bandwidths
 delta_1Y = 8.0
-delta_1M = compute_fournier_delta(p_1M)
+delta_1M = fournier_bandwidths(p_1M, coupled=True)["delta"]
 
 ax.axvspan(K - delta_1M, K + delta_1M, color="#2a9d8f", alpha=0.20,
            label=f"Calibrated 1M Gap $\\delta^* = {delta_1M:.2f}$ ($\pm 0.40\\sigma\\sqrt{{T}}$)")
@@ -229,14 +225,14 @@ Below, we visualize this complete mathematical anatomy across 4 coordinated pane
 
     cells.append(
         nbf.v4.new_code_cell(r"""s_grid = np.linspace(80, 120, 500)
-delta_calib = compute_fournier_delta(p_1M)  # ~ 2.3094
+delta_calib = fournier_bandwidths(p_1M, coupled=True)["delta"]  # 0.40 * S0 * sigma * sqrt(T) ~ 2.3094
 
 # Payoff and derivatives
 payoff_vals = np.maximum(s_grid - K, 0.0)
 payoff_deriv = (s_grid > K).astype(float)
 
 # Cutoff and derivatives (Gaussian)
-psi_vals, psi_prime_vals = get_cutoff(s_grid, K, delta=delta_calib, cutoff_type="gaussian")
+psi_vals, psi_prime_vals = get_cutoff(s_grid, K, bandwidth=delta_calib, cutoff_type="gaussian")
 
 # Decompositions
 g_loc = payoff_vals * psi_vals
@@ -275,7 +271,7 @@ delta_sweep = [1.0, delta_calib, 4.0, 8.0]
 palette_delta = ["#e76f51", "#2a9d8f", "#457b9d", "#1d3557"]
 
 for d_val, c in zip(delta_sweep, palette_delta):
-    psi_d, _ = get_cutoff(s_grid, K, delta=d_val, cutoff_type="gaussian")
+    psi_d, _ = get_cutoff(s_grid, K, bandwidth=d_val, cutoff_type="gaussian")
     lbl = f"$\delta = {d_val:.2f}$" + (" (Calibrated $\delta^*$)" if abs(d_val - delta_calib) < 1e-3 else "")
     lbl += " (1Y Default)" if abs(d_val - 8.0) < 1e-3 else ""
     ax_b.plot(s_grid, psi_d, label=lbl, color=c, linewidth=2.2)
@@ -291,7 +287,7 @@ ax_b.set_xlim(85, 115)
 # Panel C: Boundary Derivative Correction -psi'(S_T) * S_T / S0
 ax_c = axes[1, 0]
 for d_val, c in zip(delta_sweep, palette_delta):
-    _, psi_prime_d = get_cutoff(s_grid, K, delta=d_val, cutoff_type="gaussian")
+    _, psi_prime_d = get_cutoff(s_grid, K, bandwidth=d_val, cutoff_type="gaussian")
     boundary_adj = -psi_prime_d * (s_grid / S0)
     lbl = f"$\delta = {d_val:.2f}$" + (" (Calibrated)" if abs(d_val - delta_calib) < 1e-3 else "")
     ax_c.plot(s_grid, boundary_adj, label=lbl, color=c, linewidth=2.0)
@@ -354,7 +350,7 @@ colors_map = {
 fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(15, 5))
 
 for ctype in cutoff_types:
-    psi_c, psi_prime_c = get_cutoff(s_grid, K, delta=delta_calib, cutoff_type=ctype)
+    psi_c, psi_prime_c = get_cutoff(s_grid, K, bandwidth=delta_calib, cutoff_type=ctype)
     ax1.plot(s_grid, psi_c, label=ctype.capitalize(), color=colors_map[ctype], linewidth=2.0)
     ax2.plot(s_grid, psi_prime_c, label=ctype.capitalize(), color=colors_map[ctype], linewidth=2.0)
 
@@ -400,19 +396,10 @@ Below, we scatter 5,000 Monte Carlo sample realisations against their respective
         nbf.v4.new_code_cell(r"""N_scatter = 5000
 paths_scatter = generate_paths(T_1M, N_scatter, seed=42)
 S_T_scatter = simulate_terminal_spot(S0, T_1M, r, q, sigma, paths_scatter)
-payoff_scat = np.maximum(S_T_scatter - K, 0.0)
-payoff_p_scat = (S_T_scatter > K).astype(float)
-pi_delta_scat, _, _ = compute_malliavin_weights(S0, T_1M, sigma, paths_scatter)
 
-# Standard Malliavin samples
-samples_std_scat = np.exp(-r * T_1M) * payoff_scat * pi_delta_scat
-
-# Fournié localized samples
-psi_scat, psi_p_scat = get_cutoff(S_T_scatter, K, delta=delta_calib, cutoff_type="gaussian")
-samples_loc_scat = np.exp(-r * T_1M) * (
-    payoff_scat * (psi_scat * pi_delta_scat - psi_p_scat * (S_T_scatter / S0))
-    + payoff_p_scat * (1.0 - psi_scat) * (S_T_scatter / S0)
-)
+# Per-path Delta samples from the library estimators
+samples_std_scat = malliavin_samples_european(payoffs.call, p_1M, paths_scatter)["delta"]
+samples_loc_scat = malliavin_fournier_samples_european_call(p_1M, paths_scatter, bandwidth=delta_calib)["delta"]
 
 fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(16, 5.5), sharey=False)
 
@@ -477,40 +464,23 @@ analytic_greeks = greeks_european_call(p_1M)
 # 2. Monte Carlo simulation paths
 paths_bench = generate_paths(T_1M, N_benchmark, seed=seed_bench)
 S_T_bench = simulate_terminal_spot(S0, T_1M, r, q, sigma, paths_bench)
-payoff_bench = np.maximum(S_T_bench - K, 0.0)
-payoff_p_bench = (S_T_bench > K).astype(float)
-pi_d_b, pi_g_b, pi_v_b = compute_malliavin_weights(S0, T_1M, sigma, paths_bench)
 
 # Prices
-mc_price_samples = np.exp(-r * T_1M) * payoff_bench
+mc_price_samples = np.exp(-r * T_1M) * payoffs.call(S_T_bench, p_1M)
 price_mc = np.mean(mc_price_samples)
 price_mc_se = np.std(mc_price_samples) / np.sqrt(N_benchmark)
 
 # Standard Malliavin Greeks & SE
-std_d_samples = np.exp(-r * T_1M) * payoff_bench * pi_d_b
-std_g_samples = np.exp(-r * T_1M) * payoff_bench * pi_g_b
-std_v_samples = np.exp(-r * T_1M) * payoff_bench * pi_v_b
+std_bench = malliavin_samples_european(payoffs.call, p_1M, paths_bench)
+std_d_samples, std_g_samples, std_v_samples = std_bench["delta"], std_bench["gamma"], std_bench["vega"]
 
 std_d, std_d_se = np.mean(std_d_samples), np.std(std_d_samples) / np.sqrt(N_benchmark)
 std_g, std_g_se = np.mean(std_g_samples), np.std(std_g_samples) / np.sqrt(N_benchmark)
 std_v, std_v_se = np.mean(std_v_samples), np.std(std_v_samples) / np.sqrt(N_benchmark)
 
-# Fournié Localized Greeks & SE (Calibrated delta)
-psi_b, psi_p_b, psi_pp_b = get_cutoff(S_T_bench, K, delta=delta_calib, cutoff_type="gaussian", return_second_deriv=True)
-four_d_samples = np.exp(-r * T_1M) * (
-    payoff_bench * (psi_b * pi_d_b - psi_p_b * (S_T_bench / S0))
-    + payoff_p_bench * (1.0 - psi_b) * (S_T_bench / S0)
-)
-pw_vega_b = S_T_bench * (paths_bench - sigma * T_1M)
-four_v_samples = np.exp(-r * T_1M) * (
-    payoff_bench * (psi_b * pi_v_b - psi_p_b * pw_vega_b)
-    + payoff_p_bench * (1.0 - psi_b) * pw_vega_b
-)
-# General localized Gamma: Phi psi W_Gamma + (Phi''(1 - psi) - 2 Phi' psi' - Phi psi'') (S_T/S0)^2, with Phi'' = 0 a.e.
-four_g_samples = np.exp(-r * T_1M) * (
-    payoff_bench * psi_b * pi_g_b
-    - (2.0 * payoff_p_bench * psi_p_b + payoff_bench * psi_pp_b) * (S_T_bench / S0)**2
-)
+# Fournié localized Greeks & SE (one coupled bandwidth for all Greeks, general Gamma formula)
+four_bench = malliavin_fournier_samples_european_call(p_1M, paths_bench, bandwidth=delta_calib)
+four_d_samples, four_g_samples, four_v_samples = four_bench["delta"], four_bench["gamma"], four_bench["vega"]
 
 four_d, four_d_se = np.mean(four_d_samples), np.std(four_d_samples) / np.sqrt(N_benchmark)
 four_g, four_g_se = np.mean(four_g_samples), np.std(four_g_samples) / np.sqrt(N_benchmark)
@@ -635,43 +605,20 @@ cutoff_types = ["gaussian", "cubic", "cosine", "quintic", "cauchy"]
 # Re-use pre-generated paths to eliminate Monte Carlo sampling noise across delta evaluations
 N_grid = 250_000
 paths_grid = generate_paths(T_1M, N_grid, seed=42)
-S_T_grid = simulate_terminal_spot(S0, T_1M, r, q, sigma, paths_grid)
-payoff_grid = np.maximum(S_T_grid - K, 0.0)
-payoff_p_grid = (S_T_grid > K).astype(float)
-pi_d_g, pi_g_g, pi_v_g = compute_malliavin_weights(S0, T_1M, sigma, paths_grid)
-pw_vega_grid = S_T_grid * (paths_grid - sigma * T_1M)
 
 # Standard Malliavin reference variances
-std_d_s = np.exp(-r * T_1M) * payoff_grid * pi_d_g
-std_g_s = np.exp(-r * T_1M) * payoff_grid * pi_g_g
-std_v_s = np.exp(-r * T_1M) * payoff_grid * pi_v_g
-
-var_std_delta = np.var(std_d_s)
-var_std_gamma = np.var(std_g_s)
-var_std_vega  = np.var(std_v_s)
+std_grid = malliavin_samples_european(payoffs.call, p_1M, paths_grid)
+var_std_delta = np.var(std_grid["delta"])
+var_std_gamma = np.var(std_grid["gamma"])
+var_std_vega  = np.var(std_grid["vega"])
 
 grid_records = []
 
 for ctype in cutoff_types:
     for d in deltas_grid:
-        psi, psi_p, psi_pp = get_cutoff(S_T_grid, K, delta=d, cutoff_type=ctype, return_second_deriv=True)
-        
-        # Localized Delta samples
-        loc_d_s = np.exp(-r * T_1M) * (
-            payoff_grid * (psi * pi_d_g - psi_p * (S_T_grid / S0))
-            + payoff_p_grid * (1.0 - psi) * (S_T_grid / S0)
-        )
-        # Localized Gamma samples
-        loc_g_s = np.exp(-r * T_1M) * (
-            payoff_grid * psi * pi_g_g - (2.0 * payoff_p_grid * psi_p + payoff_grid * psi_pp) * (S_T_grid / S0)**2
-        )
-        
-        # Localized Vega samples
-        loc_v_s = np.exp(-r * T_1M) * (
-            payoff_grid * (psi * pi_v_g - psi_p * pw_vega_grid)
-            + payoff_p_grid * (1.0 - psi) * pw_vega_grid
-        )
-        
+        loc = malliavin_fournier_samples_european_call(p_1M, paths_grid, cutoff_type=ctype, bandwidth=d)
+        loc_d_s, loc_g_s, loc_v_s = loc["delta"], loc["gamma"], loc["vega"]
+
         v_delta = float(np.var(loc_d_s))
         v_gamma = float(np.var(loc_g_s))
         v_vega  = float(np.var(loc_v_s))
@@ -796,21 +743,11 @@ Below, we visualize the Monte Carlo sample dispersion for Vega and sweep $\delta
 N_scat_v = 5000
 paths_v = generate_paths(T_1M, N_scat_v, seed=101)
 S_T_v = simulate_terminal_spot(S0, T_1M, r, q, sigma, paths_v)
-payoff_v = np.maximum(S_T_v - K, 0.0)
-payoff_p_v = (S_T_v > K).astype(float)
-_, _, pi_v_scat = compute_malliavin_weights(S0, T_1M, sigma, paths_v)
-pw_v_scat = S_T_v * (paths_v - sigma * T_1M)
 
-# Standard Malliavin Vega samples
-samples_std_v = np.exp(-r * T_1M) * payoff_v * pi_v_scat
-
-# Fournié Localized Vega samples (using delta = 1.15)
-delta_vega_opt = 0.20 * S0 * sigma * np.sqrt(T_1M)  # ~ 1.1547
-psi_v, psip_v = get_cutoff(S_T_v, K, delta=delta_vega_opt, cutoff_type="gaussian")
-samples_loc_v = np.exp(-r * T_1M) * (
-    payoff_v * (psi_v * pi_v_scat - psip_v * pw_v_scat)
-    + payoff_p_v * (1.0 - psi_v) * pw_v_scat
-)
+# Standard Malliavin and Fournié Vega samples (default Vega bandwidth 0.20 * S0 * sigma * sqrt(T) ~ 1.15)
+delta_vega_opt = fournier_bandwidths(p_1M)["vega"]
+samples_std_v = malliavin_samples_european(payoffs.call, p_1M, paths_v)["vega"]
+samples_loc_v = malliavin_fournier_samples_european_call(p_1M, paths_v, bandwidth=delta_vega_opt)["vega"]
 
 fig, axes = plt.subplots(1, 2, figsize=(16, 5.5))
 
@@ -829,11 +766,7 @@ axes[0].legend(frameon=True, loc="upper left")
 deltas_fine = np.linspace(0.1, 5.0, 40)
 vars_vega_fine = []
 for d_val in deltas_fine:
-    psi_f, psip_f = get_cutoff(S_T_grid, K, delta=d_val, cutoff_type="gaussian")
-    v_samples = np.exp(-r * T_1M) * (
-        payoff_grid * (psi_f * pi_v_g - psip_f * pw_vega_grid)
-        + payoff_p_grid * (1.0 - psi_f) * pw_vega_grid
-    )
+    v_samples = malliavin_fournier_samples_european_call(p_1M, paths_grid, bandwidth=float(d_val))["vega"]
     vars_vega_fine.append(np.var(v_samples))
 
 axes[1].plot(deltas_fine, vars_vega_fine, color="#1d3557", linewidth=2.5, label=r"Gaussian Cutoff $\operatorname{Var}(\hat{\mathcal{V}})$")
@@ -885,28 +818,12 @@ Below, we compare **Standard Malliavin vs. Coupled Fournié vs. Decoupled Fourni
     cells.append(
         nbf.v4.new_code_cell(r"""# Head-to-Head Comparison: Standard vs. Coupled Fournié vs. Decoupled Option A
 # Common Random Numbers (N = 1,000,000 paths)
-delta_opt_d = 0.20 * S0 * sigma * np.sqrt(T_1M)  # 1.1547
-delta_opt_g = 0.50 * S0 * sigma * np.sqrt(T_1M)  # 2.8867
-delta_opt_v = 0.20 * S0 * sigma * np.sqrt(T_1M)  # 1.1547
+bandwidths_opt = fournier_bandwidths(p_1M)  # (0.20, 0.50, 0.20) * S0 * sigma * sqrt(T)
+delta_opt_d, delta_opt_g, delta_opt_v = bandwidths_opt["delta"], bandwidths_opt["gamma"], bandwidths_opt["vega"]
 
-# Cutoffs for Decoupled Option A
-psi_d_opt, psip_d_opt = get_cutoff(S_T_bench, K, delta=delta_opt_d, cutoff_type="gaussian")
-psi_g_opt, psip_g_opt, psipp_g_opt = get_cutoff(S_T_bench, K, delta=delta_opt_g, cutoff_type="gaussian", return_second_deriv=True)
-psi_v_opt, psip_v_opt = get_cutoff(S_T_bench, K, delta=delta_opt_v, cutoff_type="gaussian")
-
-# Decoupled Option A estimators
-decoup_d_samples = np.exp(-r * T_1M) * (
-    payoff_bench * (psi_d_opt * pi_d_b - psip_d_opt * (S_T_bench / S0))
-    + payoff_p_bench * (1.0 - psi_d_opt) * (S_T_bench / S0)
-)
-decoup_g_samples = np.exp(-r * T_1M) * (
-    payoff_bench * psi_g_opt * pi_g_b
-    - (2.0 * payoff_p_bench * psip_g_opt + payoff_bench * psipp_g_opt) * (S_T_bench / S0)**2
-)
-decoup_v_samples = np.exp(-r * T_1M) * (
-    payoff_bench * (psi_v_opt * pi_v_b - psip_v_opt * pw_vega_b)
-    + payoff_p_bench * (1.0 - psi_v_opt) * pw_vega_b
-)
+# Decoupled Option A estimators (same paths as Section 3)
+decoup = malliavin_fournier_samples_european_call(p_1M, paths_bench, bandwidth=bandwidths_opt)
+decoup_d_samples, decoup_g_samples, decoup_v_samples = decoup["delta"], decoup["gamma"], decoup["vega"]
 
 # Compute metrics
 var_std_d, var_std_g, var_std_v = np.var(std_d_samples), np.var(std_g_samples), np.var(std_v_samples)
@@ -1026,24 +943,16 @@ for s0 in spots_sweep:
     d1_s = d1(s0, K, T_1M, r, q, sigma)
     bs_deltas.append(np.exp(-q * T_1M) * norm.cdf(d1_s))
     
-    # Simulate terminal spot
-    S_T_s = simulate_terminal_spot(s0, T_1M, r, q, sigma, paths_sweep)
-    payoff_s = np.maximum(S_T_s - K, 0.0)
-    payoff_p_s = (S_T_s > K).astype(float)
-    pi_d_s, _, _ = compute_malliavin_weights(s0, T_1M, sigma, paths_sweep)
-    
+    p_s = {**p_1M, "S0": s0}
+
     # 2. Standard Malliavin
-    samples_std = np.exp(-r * T_1M) * payoff_s * pi_d_s
+    samples_std = malliavin_samples_european(payoffs.call, p_s, paths_sweep)["delta"]
     std_deltas.append(np.mean(samples_std))
     std_errors_std.append(np.std(samples_std) / np.sqrt(N_sweep))
-    
-    # 3. Fournié Localized Malliavin (Scaling delta with spot: delta*(S0) = 0.40 * S0 * sigma * sqrt(T))
-    delta_s = 0.40 * s0 * sigma * np.sqrt(T_1M)
-    psi_s, psi_p_s = get_cutoff(S_T_s, K, delta=delta_s, cutoff_type="gaussian")
-    samples_four = np.exp(-r * T_1M) * (
-        payoff_s * (psi_s * pi_d_s - psi_p_s * (S_T_s / s0))
-        + payoff_p_s * (1.0 - psi_s) * (S_T_s / s0)
-    )
+
+    # 3. Fournié localized Malliavin (coupled bandwidth scales with spot: 0.40 * S0 * sigma * sqrt(T))
+    delta_s = fournier_bandwidths(p_s, coupled=True)["delta"]
+    samples_four = malliavin_fournier_samples_european_call(p_s, paths_sweep, bandwidth=delta_s)["delta"]
     four_deltas.append(np.mean(samples_four))
     std_errors_four.append(np.std(samples_four) / np.sqrt(N_sweep))
 
@@ -1131,28 +1040,13 @@ $$N \in [1,000, \; 5,000, \; 10,000, \; 50,000, \; 100,000, \; 500,000, \; 1,000
 
 conv_records = []
 max_paths = generate_paths(T_1M, max(n_sims_list), seed=2026)
-max_S_T = simulate_terminal_spot(S0, T_1M, r, q, sigma, max_paths)
-max_payoff = np.maximum(max_S_T - K, 0.0)
-max_payoff_p = (max_S_T > K).astype(float)
-max_pi_d, _, _ = compute_malliavin_weights(S0, T_1M, sigma, max_paths)
-max_psi, max_psi_p = get_cutoff(max_S_T, K, delta=delta_calib, cutoff_type="gaussian")
+max_std = malliavin_samples_european(payoffs.call, p_1M, max_paths)["delta"]
+max_four = malliavin_fournier_samples_european_call(p_1M, max_paths, bandwidth=delta_calib)["delta"]
 
 for n_val in n_sims_list:
-    # Slice common subpaths
-    p_slice = max_payoff[:n_val]
-    pp_slice = max_payoff_p[:n_val]
-    pi_slice = max_pi_d[:n_val]
-    st_slice = max_S_T[:n_val]
-    psi_slice = max_psi[:n_val]
-    psip_slice = max_psi_p[:n_val]
-    
-    # Standard
-    s_samples = np.exp(-r * T_1M) * p_slice * pi_slice
-    # Fournié
-    f_samples = np.exp(-r * T_1M) * (
-        p_slice * (psi_slice * pi_slice - psip_slice * (st_slice / S0))
-        + pp_slice * (1.0 - psi_slice) * (st_slice / S0)
-    )
+    # Nested subsets of the same paths
+    s_samples = max_std[:n_val]
+    f_samples = max_four[:n_val]
     
     conv_records.append({
         "N": n_val,
@@ -1233,8 +1127,8 @@ delta_b = (H_b - K_b) / 2.0
 
 s_b = np.linspace(90, 115, 1000)
 payoff_b = np.maximum(s_b - K_b, 0.0) * (s_b <= H_b)
-psi_k, _ = get_cutoff(s_b, K_b, delta=delta_b, cutoff_type="gaussian")
-psi_h, _ = get_cutoff(s_b, H_b, delta=delta_b, cutoff_type="gaussian")
+psi_k, _ = get_cutoff(s_b, K_b, bandwidth=delta_b, cutoff_type="gaussian")
+psi_h, _ = get_cutoff(s_b, H_b, bandwidth=delta_b, cutoff_type="gaussian")
 psi_sum = psi_k + psi_h
 psi_union = 1.0 - (1.0 - psi_k) * (1.0 - psi_h)
 
@@ -1259,8 +1153,8 @@ plt.tight_layout()
 plt.show()
 
 at_points = np.array([K_b, H_b])
-psi_sum_pts = (get_cutoff(at_points, K_b, delta=delta_b, cutoff_type="gaussian")[0]
-               + get_cutoff(at_points, H_b, delta=delta_b, cutoff_type="gaussian")[0])
+psi_sum_pts = (get_cutoff(at_points, K_b, bandwidth=delta_b, cutoff_type="gaussian")[0]
+               + get_cutoff(at_points, H_b, bandwidth=delta_b, cutoff_type="gaussian")[0])
 print(f"psi_K + psi_H at K = {psi_sum_pts[0]:.4f}, at H = {psi_sum_pts[1]:.4f} (the formulas need 1)")
 """)
     )
@@ -1304,7 +1198,7 @@ rows = []
 for ctype in ["gaussian", "cauchy", "cubic", "cosine", "quintic"]:
     for comb in ["union", "sum"]:
         res = malliavin_fournier_greeks_european_barrier_up_and_out_call(
-            p_bar, paths=paths_ko, cutoff_type=ctype, delta_strike=delta_b,
+            p_bar, paths=paths_ko, cutoff_type=ctype, bandwidth=delta_b,
             cutoff_combination=comb, return_stats=True,
         )
         for g in ("delta", "gamma", "vega"):
@@ -1327,15 +1221,12 @@ Even with the unbiased cutoff, localization does not reduce the variance of Delt
     )
 
     cells.append(
-        nbf.v4.new_code_cell(r"""from Methods.Malliavin.malliavin_european_fournier import malliavin_fournier_samples_european_call_terminal_knockout
-from Methods.Malliavin.malliavin_european_standard import malliavin_samples_european, _payoff_call_terminal_knockout
-
-paths_var = generate_paths(T_b, 1_000_000, seed=11)
-std_samples = malliavin_samples_european(_payoff_call_terminal_knockout, p_bar, paths_var)
+        nbf.v4.new_code_cell(r"""paths_var = generate_paths(T_b, 1_000_000, seed=11)
+std_samples = malliavin_samples_european(payoffs.call_terminal_knockout, p_bar, paths_var)
 deltas_sweep_b = np.linspace(0.5, delta_b, 12)
 var_rows = []
 for d in deltas_sweep_b:
-    four = malliavin_fournier_samples_european_call_terminal_knockout(p_bar, paths_var, "gaussian", float(d))
+    four = malliavin_fournier_samples_european_call_terminal_knockout(p_bar, paths_var, bandwidth=float(d))
     var_rows.append({g: np.var(four[g], ddof=1) for g in ("delta", "gamma", "vega")} | {"delta_bw": d})
 df_var_b = pd.DataFrame(var_rows)
 

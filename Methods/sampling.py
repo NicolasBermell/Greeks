@@ -30,6 +30,18 @@ def generate_paths(T: float, N: int, seed: int = 42) -> np.ndarray:
     return np.random.default_rng(seed).standard_normal(N) * np.sqrt(T)
 
 
+def simulate_terminal_spot(
+    S0: float,
+    T: float,
+    r: float,
+    q: float,
+    sigma: float,
+    W_T: np.ndarray,
+) -> np.ndarray:
+    """Black-Scholes terminal price S_T = S0 exp((r - q - sigma^2/2) T + sigma W_T)."""
+    return S0 * np.exp((r - q - 0.5 * sigma**2) * T + sigma * W_T)
+
+
 def iter_paths(T: float, N: int, seed: int, chunk_size: int = DEFAULT_CHUNK_SIZE) -> Iterator[np.ndarray]:
     """Yields W_T in blocks. Concatenating the blocks gives exactly ``generate_paths(T, N, seed)``."""
     rng = np.random.default_rng(seed)

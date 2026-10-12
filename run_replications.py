@@ -48,28 +48,27 @@ from Utilities.plotting import plot_replication_error_vs_N
 def build_estimators() -> list[tuple[str, float | None, dict, callable]]:
     """(Method, eps, product params, fn(seed, N) -> stats dict) for every run configuration."""
     estimators = []
-    for params, fdmc_fn, mall_fn, four_fn, bandwidths in EUROPEAN_PRODUCTS:
+    for params, fdmc_fn, mall_fn, four_fn in EUROPEAN_PRODUCTS:
         for eps in REPLICATION_FDMC_EPS_ARRAY:
             estimators.append(("FDMC", eps, params,
                                lambda seed, N, p=params, f=fdmc_fn, e=eps: f(p, eps=e, N=N, seed=seed, return_stats=True)))
         estimators.append(("Malliavin", None, params,
                            lambda seed, N, p=params, f=mall_fn: f(p, N=N, seed=seed, return_stats=True)))
         estimators.append(("Malliavin Fournié", None, params,
-                           lambda seed, N, p=params, f=four_fn, b=bandwidths: f(
-                               p, N=N, seed=seed, cutoff_type=MALLIAVIN_FOURNIER_CUTOFF_TYPE,
-                               delta_strike=b, return_stats=True)))
+                           lambda seed, N, p=params, f=four_fn: f(
+                               p, N=N, seed=seed, cutoff_type=MALLIAVIN_FOURNIER_CUTOFF_TYPE, return_stats=True)))
         if params is example_european_call_terminal_knockout:
             # psi = psi_K + psi_H: biased with the gaussian cutoff (psi(K) = 1 + psi_H(K)). Kept to show that.
             estimators.append(("Malliavin Fournié (ψ_K+ψ_H)", None, params,
-                               lambda seed, N, p=params, f=four_fn, b=bandwidths: f(
+                               lambda seed, N, p=params, f=four_fn: f(
                                    p, N=N, seed=seed, cutoff_type=MALLIAVIN_FOURNIER_CUTOFF_TYPE,
-                                   delta_strike=b, return_stats=True, cutoff_combination="sum")))
+                                   return_stats=True, cutoff_combination="sum")))
         if params is example_european_call_ATM:
             # Old call-only Gamma: (K/S0) x localized digital Delta. Kept for the remark comparing variances.
             estimators.append(("Malliavin Fournié (Γ shortcut)", None, params,
-                               lambda seed, N, p=params, f=four_fn, b=bandwidths: f(
+                               lambda seed, N, p=params, f=four_fn: f(
                                    p, N=N, seed=seed, cutoff_type=MALLIAVIN_FOURNIER_CUTOFF_TYPE,
-                                   delta_strike=b, return_stats=True, gamma_formula="shortcut")))
+                                   return_stats=True, gamma_formula="shortcut")))
     return estimators
 
 

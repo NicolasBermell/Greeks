@@ -20,7 +20,7 @@ def _coerce_results_types(df: pd.DataFrame) -> pd.DataFrame:
     out = df.copy()
     greeks_and_params = [
         "delta", "gamma", "vega", "theta", "rho",
-        "S0", "K", "T", "r", "q", "sigma", "H", "eps", "delta_strike",
+        "S0", "K", "T", "r", "q", "sigma", "H", "eps", "bandwidth",
         "delta_var", "delta_se", "gamma_var", "gamma_se", "vega_var", "vega_se",
     ]
     for col in greeks_and_params:
@@ -100,7 +100,6 @@ def load_all_simulation_results(
         malliavin_fournier_df = _coerce_results_types(pd.read_csv(four_path))
 
     return benchmarks_df, fdmc_df, malliavin_df, malliavin_fournier_df
-
 
 
 # ==============================================================================
@@ -847,217 +846,9 @@ def find_min_acceptable_N(
     return res_df
 
 
-def find_min_acceptable_N_comparison(
-    fdmc_metrics_df: pd.DataFrame,
-    malliavin_metrics_df: pd.DataFrame,
-    tolerances: Mapping[str, float] | None = None,
-    fdmc_eps: float | Mapping[str, float] | Mapping[tuple[str, str], float] | str = FDMC_FIXED_EPS,
-    criterion: str = "abs_error",
-    fdmc_timing_df: pd.DataFrame | None = None,
-    malliavin_timing_df: pd.DataFrame | None = None,
-    exclude_catastrophic: bool = True,
-    fournier_metrics_df: pd.DataFrame | None = None,
-    fournier_timing_df: pd.DataFrame | None = None,
-    tolerance_dict: Mapping[str, float] | None = None,
-) -> pd.DataFrame:
-    """Compares minimum required sample size N* and wall-clock execution time for FDMC vs Malliavin (and Fournié)."""
-    if tolerances is None and tolerance_dict is not None:
-        tolerances = tolerance_dict
-
-    min_n_fdmc = find_min_acceptable_N(
-        fdmc_metrics_df, tolerances=tolerances, fdmc_eps=fdmc_eps, criterion=criterion,
-        timing_df=fdmc_timing_df, exclude_catastrophic=exclude_catastrophic
-    )
-
-    # Compute Standard Malliavin rates ms/path
-    mal_rates = {}
-    if malliavin_timing_df is not None:
-        t_mal = malliavin_timing_df.copy()
-        if "ms_per_10k_paths" in t_mal.columns:
-            t_mal["rate"] = t_mal["ms_per_10k_paths"] / 10_000.0
-        elif "time_ms_mean" in t_mal.columns and "N" in t_mal.columns:
-            t_mal["rate"] = t_mal["time_ms_mean"] / t_mal["N"]
-        else:
-            t_mal["rate"] = 0.0
-        mal_rates = t_mal.groupby("Product")["rate"].mean().to_dict()
-
-    # Compute Fournié Malliavin rates ms/path if provided
-    four_rates = {}
-    if fournier_timing_df is not None:
-        t_four = fournier_timing_df.copy()
-        if "ms_per_10k_paths" in t_four.columns:
-            t_four["rate"] = t_four["ms_per_10k_paths"] / 10_000.0
-        elif "time_ms_mean" in t_four.columns and "N" in t_four.columns:
-            t_four["rate"] = t_four["time_ms_mean"] / t_four["N"]
-        else:
-            t_four["rate"] = 0.0
-        four_rates = t_four.groupby("Product")["rate"].mean().to_dict()
-
-    records = []
-
-    for _, row in min_n_fdmc.iterrows():
-        prod = row["Product"]
-        greek = row["Greek"]
-        target_tol = row["Target Tolerance"]
-
-        # Evaluate Standard Malliavin
-        sub_mal = malliavin_metrics_df[
-            (malliavin_metrics_df["Product"] == prod)
-        ].sort_values("N")
-
-        mal_err_col = f"{greek}_{criterion}" if f"{greek}_{criterion}" in sub_mal.columns else f"{greek}_abs_error"
-        passing_mal = sub_mal[sub_mal[mal_err_col] <= target_tol] if not sub_mal.empty else pd.DataFrame()
-        ms_per_path_mal = mal_rates.get(prod, None)
-
-        if not passing_mal.empty:
-            first_mal = passing_mal.iloc[0]
-            mal_n = int(first_mal["N"])
-            mal_err = first_mal[mal_err_col]
-            mal_time = (ms_per_path_mal * mal_n) if ms_per_path_mal is not None else np.nan
-            mal_status = "Passed"
-        elif not sub_mal.empty:
-            best_mal = sub_mal.loc[sub_mal[mal_err_col].idxmin()]
-            mal_n = int(sub_mal["N"].max())
-            mal_err = best_mal[mal_err_col]
-            mal_time = (ms_per_path_mal * mal_n) if ms_per_path_mal is not None else np.nan
-            mal_status = f"Exceeds Tol (best={mal_err:.4f})"
-        else:
-            mal_n = np.nan
-            mal_err = np.nan
-            mal_time = np.nan
-            mal_status = "Missing"
-
-        fdmc_n = row["Min Required N"]
-        fdmc_time = row.get("Joint Time (ms)", np.nan)
-        speedup = (fdmc_time / mal_time) if (mal_time > 0 and not np.isnan(fdmc_time)) else np.nan
-        eps_val = row.get("FDMC ε", row.get("Optimal ε*", np.nan))
-
-        rec = {
-            "Product": prod,
-            "Greek": greek,
-            "Target Tol": target_tol,
-            "FDMC Min N*": fdmc_n,
-            "FDMC ε": eps_val,
-            "FDMC Opt ε*": eps_val,
-            "FDMC Error": row["Achieved Abs Error"],
-            "FDMC Time (ms)": fdmc_time,
-            "FDMC Status": row["Status"],
-            "Malliavin Min N*": mal_n,
-            "Malliavin Error": mal_err,
-            "Malliavin Time (ms)": mal_time,
-            "Malliavin Status": mal_status,
-            "Speedup (FDMC/Mal Time)": speedup,
-        }
-
-        # Optional Fournié Localized Malliavin evaluation
-        if fournier_metrics_df is not None:
-            sub_four = fournier_metrics_df[
-                (fournier_metrics_df["Product"] == prod)
-            ].sort_values("N")
-
-            four_err_col = f"{greek}_{criterion}" if f"{greek}_{criterion}" in sub_four.columns else f"{greek}_abs_error"
-            passing_four = sub_four[sub_four[four_err_col] <= target_tol] if not sub_four.empty else pd.DataFrame()
-            ms_per_path_four = four_rates.get(prod, None)
-
-            if not passing_four.empty:
-                first_four = passing_four.iloc[0]
-                four_n = int(first_four["N"])
-                four_err = first_four[four_err_col]
-                four_time = (ms_per_path_four * four_n) if ms_per_path_four is not None else np.nan
-                four_status = "Passed"
-            elif not sub_four.empty:
-                best_four = sub_four.loc[sub_four[four_err_col].idxmin()]
-                four_n = int(sub_four["N"].max())
-                four_err = best_four[four_err_col]
-                four_time = (ms_per_path_four * four_n) if ms_per_path_four is not None else np.nan
-                four_status = f"Exceeds Tol (best={four_err:.4f})"
-            else:
-                four_n = np.nan
-                four_err = np.nan
-                four_time = np.nan
-                four_status = "Missing"
-
-            speedup_four = (fdmc_time / four_time) if (four_time > 0 and not np.isnan(fdmc_time)) else np.nan
-            speedup_four_vs_mal = (mal_time / four_time) if (four_time > 0 and not np.isnan(mal_time)) else np.nan
-
-            rec["Fournié Min N*"] = four_n
-            rec["Fournié Error"] = four_err
-            rec["Fournié Time (ms)"] = four_time
-            rec["Fournié Status"] = four_status
-            rec["Speedup (FDMC/Fournié Time)"] = speedup_four
-            rec["Fournié Speedup vs Mal"] = speedup_four_vs_mal
-
-        records.append(rec)
-
-    return pd.DataFrame(records)
-
-
 # ==============================================================================
 # 8. Cutoff & Delta Strike Sensitivity Summarizers
 # ==============================================================================
-
-def summarize_cutoff_functions(
-    cutoff_results_dict: Mapping[str, Mapping[str, float]],
-    benchmarks: Mapping[str, float],
-) -> pd.DataFrame:
-    """Summarizes Greeks and errors across different Fournié cutoff functions.
-
-    Args:
-        cutoff_results_dict: Dictionary mapping cutoff_type -> {greek: value}.
-        benchmarks: Dictionary of analytical benchmark values {greek: value}.
-
-    Returns:
-        pd.DataFrame: Formatted comparison across cutoff functions.
-    """
-    rows = []
-    for ctype, greeks in cutoff_results_dict.items():
-        row = {"Cutoff Function": ctype}
-        for g in ["delta", "gamma", "vega"]:
-            if g in greeks:
-                val = greeks[g]
-                bench = benchmarks.get(g, np.nan)
-                abs_err = abs(val - bench) if not np.isnan(bench) else np.nan
-                rel_err = (abs_err / abs(bench)) * 100.0 if (not np.isnan(bench) and abs(bench) > 1e-12) else np.nan
-                bias = val - bench if not np.isnan(bench) else np.nan
-
-                row[f"{g.capitalize()}"] = val
-                row[f"{g.capitalize()} Abs Error"] = abs_err
-                row[f"{g.capitalize()} Rel Err (%)"] = rel_err
-                row[f"{g.capitalize()} Bias"] = bias
-        rows.append(row)
-    return pd.DataFrame(rows)
-
-
-def summarize_delta_strike_sensitivities(
-    delta_results_dict: Mapping[float, Mapping[str, float]],
-    benchmarks: Mapping[str, float],
-) -> pd.DataFrame:
-    """Summarizes Greeks and errors across different smoothing half-widths delta.
-
-    Args:
-        delta_results_dict: Dictionary mapping delta_strike -> {greek: value}.
-        benchmarks: Dictionary of analytical benchmark values {greek: value}.
-
-    Returns:
-        pd.DataFrame: Formatted comparison across delta strike values.
-    """
-    rows = []
-    for d, greeks in delta_results_dict.items():
-        row = {"Delta Strike (δ)": d}
-        for g in ["delta", "gamma", "vega"]:
-            if g in greeks:
-                val = greeks[g]
-                bench = benchmarks.get(g, np.nan)
-                abs_err = abs(val - bench) if not np.isnan(bench) else np.nan
-                rel_err = (abs_err / abs(bench)) * 100.0 if (not np.isnan(bench) and abs(bench) > 1e-12) else np.nan
-                bias = val - bench if not np.isnan(bench) else np.nan
-
-                row[f"{g.capitalize()}"] = val
-                row[f"{g.capitalize()} Abs Error"] = abs_err
-                row[f"{g.capitalize()} Rel Err (%)"] = rel_err
-                row[f"{g.capitalize()} Bias"] = bias
-        rows.append(row)
-    return pd.DataFrame(rows)
 
 
 # ==============================================================================
@@ -1091,8 +882,8 @@ def compute_smoothing_and_gap_grid(
     Returns:
         pd.DataFrame: Comprehensive sensitivity and variance dataset across all (function, delta) pairs.
     """
+    from Methods.sampling import generate_paths
     from Methods.Malliavin.malliavin_european_fournier import (
-        generate_paths,
         malliavin_fournier_greeks_european_barrier_up_and_out_call,
         malliavin_fournier_greeks_european_call,
         malliavin_fournier_greeks_european_digital_call,
@@ -1125,13 +916,13 @@ def compute_smoothing_and_gap_grid(
     for ctype in cutoff_types:
         for d in deltas:
             # 1. Point estimate
-            res = calc_fn(params, N=N, paths=paths, cutoff_type=ctype, delta_strike=d)
+            res = calc_fn(params, N=N, paths=paths, cutoff_type=ctype, bandwidth=d)
 
             # 2. Empirical variance across independent replications
             rep_deltas, rep_gammas, rep_vegas = [], [], []
             for r_paths in rep_paths_list:
                 rep_res = calc_fn(
-                    params, N=variance_sample_size, paths=r_paths, cutoff_type=ctype, delta_strike=d
+                    params, N=variance_sample_size, paths=r_paths, cutoff_type=ctype, bandwidth=d
                 )
                 rep_deltas.append(rep_res["delta"])
                 rep_gammas.append(rep_res["gamma"])
@@ -1152,7 +943,7 @@ def compute_smoothing_and_gap_grid(
 
             records.append({
                 "cutoff_type": ctype,
-                "delta_strike": d,
+                "bandwidth": d,
                 "delta": res["delta"],
                 "gamma": res["gamma"],
                 "vega": res["vega"],
@@ -1213,7 +1004,7 @@ def find_optimal_delta(
         rows.append({
             "Cutoff Function": ctype,
             "Greek": g.capitalize(),
-            f"Optimal δ* ({criterion})": best_row["delta_strike"],
+            f"Optimal δ* ({criterion})": best_row["bandwidth"],
             f"Min {criterion.capitalize()}": best_row[col],
             "Value": best_row[g],
             "Abs Error": best_row[f"{g}_abs_error"],
@@ -1225,69 +1016,6 @@ def find_optimal_delta(
 # ==============================================================================
 # 10. Quantitative Diagnostics: Empirical Convergence Rate
 # ==============================================================================
-
-def compute_empirical_convergence_rate(
-    metrics_df: pd.DataFrame,
-    product: str,
-    greek: str = "gamma",
-    metric: str = "abs_error",
-    min_n: int = 10_000,
-) -> dict[str, Any]:
-    """Estimates the empirical convergence exponent alpha in Error = C * N^(-alpha).
-
-    Performs ordinary least-squares regression on log(N) vs log(Error) to evaluate
-    whether an estimator adheres to the theoretical Monte Carlo rate alpha = 0.5
-    or suffers from bias saturation (alpha -> 0).
-
-    Args:
-        metrics_df: Enriched metrics DataFrame.
-        product: Option product name.
-        greek: Sensitivity name ('delta', 'gamma', 'vega').
-        metric: 'abs_error' or 'rel_error'.
-        min_n: Minimum sample size N to include in asymptotic fit.
-
-    Returns:
-        dict: Fitted alpha, R-squared, standard error, and theoretical benchmark.
-    """
-    err_col = f"{greek}_{metric}" if f"{greek}_{metric}" in metrics_df.columns else f"{greek}_abs_error"
-    sub = metrics_df[
-        (metrics_df["Product"] == product) &
-        (metrics_df["N"] >= min_n) &
-        (metrics_df[err_col] > 0)
-    ].dropna(subset=["N", err_col])
-
-    if len(sub) < 3:
-        return {
-            "product": product,
-            "greek": greek,
-            "alpha": np.nan,
-            "r_squared": np.nan,
-            "num_points": len(sub),
-            "status": "Insufficient data points (>=3 required)",
-        }
-
-    log_n = np.log(sub["N"].values)
-    log_err = np.log(sub[err_col].values)
-
-    slope, intercept = np.polyfit(log_n, log_err, deg=1)
-    # Since Error ~ N^(-alpha), slope = -alpha => alpha = -slope
-    alpha = -slope
-
-    # Calculate R^2
-    fitted_vals = slope * log_n + intercept
-    ss_tot = np.sum((log_err - np.mean(log_err)) ** 2)
-    ss_res = np.sum((log_err - fitted_vals) ** 2)
-    r_squared = 1.0 - (ss_res / ss_tot) if ss_tot > 0 else np.nan
-
-    return {
-        "product": product,
-        "greek": greek,
-        "alpha": float(alpha),
-        "r_squared": float(r_squared),
-        "theoretical_alpha": 0.5,
-        "num_points": len(sub),
-        "status": "Converged",
-    }
 
 
 def generate_summary_csv(
@@ -1390,7 +1118,6 @@ def generate_summary_csv(
     summary_df.to_csv(out_p, index=False)
     print(f"Summary table successfully saved to {out_p} ({len(summary_df)} entries).")
     return summary_df
-
 
 
 # ==============================================================================

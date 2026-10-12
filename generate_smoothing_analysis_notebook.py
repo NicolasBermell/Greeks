@@ -260,7 +260,7 @@ grid_dig = utils.compute_smoothing_and_gap_grid(
 )
 
 print("=== Digital Option Gamma Estimator Variance by Cutoff Function (delta=8.0) ===")
-sub_dig_8 = grid_dig[grid_dig["delta_strike"] == 8.0][["cutoff_type", "gamma_abs_error", "gamma_var", "gamma_std", "vega_var"]]
+sub_dig_8 = grid_dig[grid_dig["bandwidth"] == 8.0][["cutoff_type", "gamma_abs_error", "gamma_var", "gamma_std", "vega_var"]]
 display(sub_dig_8.sort_values("gamma_var"))"""))
 
     # =========================================================================
@@ -316,7 +316,7 @@ grid_bar = utils.compute_smoothing_and_gap_grid(
     N=100000, seed=42, num_reps_for_variance=15, variance_sample_size=10000
 )
 
-display(grid_bar[["cutoff_type", "delta_strike", "delta_abs_error", "gamma_abs_error", "vega_abs_error", "vega_var"]].head(15))"""))
+display(grid_bar[["cutoff_type", "bandwidth", "delta_abs_error", "gamma_abs_error", "vega_abs_error", "vega_var"]].head(15))"""))
 
     # =========================================================================
     # Cell 11: Section 6 - The Institutional Decision Matrix
@@ -383,7 +383,7 @@ Below, we simulate and compare localized Asian Call Greeks vs. standard Malliavi
     delta_asian = 0.40 * S0 * sigma * np.sqrt(T) / np.sqrt(3.0)
     
     # Cutoff along average
-    psi, psi_prime = get_cutoff(S_avg, K, delta=delta_asian, cutoff_type="gaussian")
+    psi, psi_prime = get_cutoff(S_avg, K, bandwidth=delta_asian, cutoff_type="gaussian")
     payoff = np.maximum(S_avg - K, 0.0)
     prime = (S_avg > K).astype(float)
     
@@ -464,7 +464,7 @@ Below, we demonstrate 1D Projected Fournié Localization on a 3-Asset Basket Cal
     
     # Fournié localized cutoff along basket
     delta_basket = 0.40 * S0 * sigma_basket * np.sqrt(T)
-    psi, psi_prime = get_cutoff(B_T, K, delta=delta_basket, cutoff_type="gaussian")
+    psi, psi_prime = get_cutoff(B_T, K, bandwidth=delta_basket, cutoff_type="gaussian")
     
     payoff = np.maximum(B_T - K, 0.0)
     prime = (B_T > K).astype(float)

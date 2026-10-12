@@ -13,13 +13,9 @@ from Benchmarks.europeans import (
     benchmark_greeks_european_digital,
     benchmark_greeks_european_barrier_up_and_out,
 )
-from Methods.sampling import generate_paths, estimate_from_samples
-from Methods.MonteCarlo.FDMC_european import (
-    FDMC_geeks_european_call,
-    _delta_european_call,
-    _gamma_european_call,
-    _vega_european_call,
-)
+from Methods import payoffs
+from Methods.sampling import generate_paths, estimate_from_samples, simulate_terminal_spot
+from Methods.MonteCarlo.FDMC_european import FDMC_geeks_european_call
 from Methods.Malliavin import (
     malliavin_greeks_european_call,
     malliavin_samples_european,
@@ -27,8 +23,6 @@ from Methods.Malliavin import (
     malliavin_fournier_greeks_european_digital_call,
     malliavin_fournier_greeks_european_barrier_up_and_out_call,
 )
-from Methods.Malliavin.malliavin_european_standard import _payoff_call
-from config import MALLIAVIN_FOURNIER_DELTA_STRIKE, MALLIAVIN_FOURNIER_BARRIER_DELTA
 
 GREEKS = ("delta", "gamma", "vega")
 
@@ -39,7 +33,7 @@ class TestPerPathStatistics(unittest.TestCase):
         params = example_european_call_ATM
         W_T = generate_paths(params["T"], 50_000, seed=7)
         res = malliavin_greeks_european_call(params, paths=W_T, return_stats=True)
-        samples = malliavin_samples_european(_payoff_call, params, W_T)
+        samples = malliavin_samples_european(payoffs.call, params, W_T)
         for g in GREEKS:
             self.assertAlmostEqual(res[g], float(np.mean(samples[g])), places=12)
             self.assertAlmostEqual(res[f"{g}_var"] / np.var(samples[g], ddof=1), 1.0, places=10)
@@ -48,19 +42,27 @@ class TestPerPathStatistics(unittest.TestCase):
     def test_chunked_equals_single_block(self):
         params = example_european_call_ATM
         N, seed = 25_000, 3
-        sample_fn = lambda W: malliavin_samples_european(_payoff_call, params, W)
+        sample_fn = lambda W: malliavin_samples_european(payoffs.call, params, W)
         whole = estimate_from_samples(sample_fn, params["T"], N, seed, return_stats=True)
         chunked = estimate_from_samples(sample_fn, params["T"], N, seed, return_stats=True, chunk_size=7_000)
         for k, v in whole.items():
             self.assertAlmostEqual(chunked[k] / v, 1.0, places=10)
 
-    def test_fdmc_samples_match_pricer_differences(self):
-        params, eps, N, seed = example_european_call_ATM, 0.01, 20_000, 11
-        W_T = generate_paths(params["T"], N, seed)
+    def test_fdmc_samples_match_price_differences(self):
+        """The mean of the per-path quotients equals the difference quotient of MC prices."""
+        params, eps = example_european_call_ATM, 0.01
+        S0, T, r, q, sigma = params["S0"], params["T"], params["r"], params["q"], params["sigma"]
+        W_T = generate_paths(T, 20_000, seed=11)
+
+        def price(s0, sig):
+            return np.exp(-r * T) * np.mean(payoffs.call(simulate_terminal_spot(s0, T, r, q, sig, W_T), params))
+
         res = FDMC_geeks_european_call(params, eps=eps, paths=W_T)
-        self.assertAlmostEqual(res["delta"], _delta_european_call(params, eps, N, seed, paths=W_T), places=10)
-        self.assertAlmostEqual(res["gamma"], _gamma_european_call(params, eps, N, seed, paths=W_T), places=8)
-        self.assertAlmostEqual(res["vega"], _vega_european_call(params, eps, N, seed, paths=W_T), places=8)
+        self.assertAlmostEqual(res["delta"], (price(S0 + eps, sigma) - price(S0 - eps, sigma)) / (2 * eps), places=10)
+        self.assertAlmostEqual(
+            res["gamma"], (price(S0 + eps, sigma) - 2 * price(S0, sigma) + price(S0 - eps, sigma)) / eps**2, places=6
+        )
+        self.assertAlmostEqual(res["vega"], (price(S0, sigma + eps) - price(S0, sigma - eps)) / (2 * eps), places=8)
 
     def test_seeds_are_independent_and_reproducible(self):
         params = example_european_call_ATM
@@ -80,14 +82,12 @@ class TestFournierGamma(unittest.TestCase):
 
     def test_call_general_gamma_unbiased(self):
         params = example_european_call_ATM
-        res = malliavin_fournier_greeks_european_call(
-            params, N=self.N, seed=5, delta_strike=MALLIAVIN_FOURNIER_DELTA_STRIKE, return_stats=True
-        )
+        res = malliavin_fournier_greeks_european_call(params, N=self.N, seed=5, return_stats=True)
         self._assert_unbiased(res, benchmark_greeks_european_call(params))
 
     def test_call_shortcut_gamma_unbiased_with_lower_variance(self):
         params = example_european_call_ATM
-        kw = dict(N=self.N, seed=5, delta_strike=MALLIAVIN_FOURNIER_DELTA_STRIKE, return_stats=True)
+        kw = dict(N=self.N, seed=5, return_stats=True)
         general = malliavin_fournier_greeks_european_call(params, **kw)
         shortcut = malliavin_fournier_greeks_european_call(params, gamma_formula="shortcut", **kw)
         self._assert_unbiased(shortcut, benchmark_greeks_european_call(params), greeks=("gamma",))
@@ -95,9 +95,7 @@ class TestFournierGamma(unittest.TestCase):
 
     def test_digital_unbiased(self):
         params = example_european_digital_ATM
-        res = malliavin_fournier_greeks_european_digital_call(
-            params, N=self.N, seed=6, delta_strike=MALLIAVIN_FOURNIER_DELTA_STRIKE, return_stats=True
-        )
+        res = malliavin_fournier_greeks_european_digital_call(params, N=self.N, seed=6, return_stats=True)
         self._assert_unbiased(res, benchmark_greeks_european_digital(params))
 
     def test_terminal_knockout_unbiased_for_every_cutoff(self):
@@ -105,8 +103,7 @@ class TestFournierGamma(unittest.TestCase):
         bench = benchmark_greeks_european_barrier_up_and_out(params)
         for cutoff in ("gaussian", "quintic", "cauchy"):
             res = malliavin_fournier_greeks_european_barrier_up_and_out_call(
-                params, N=self.N, seed=8, cutoff_type=cutoff,
-                delta_strike=MALLIAVIN_FOURNIER_BARRIER_DELTA, return_stats=True,
+                params, N=self.N, seed=8, cutoff_type=cutoff, return_stats=True
             )
             self._assert_unbiased(res, bench)
 
@@ -114,7 +111,7 @@ class TestFournierGamma(unittest.TestCase):
         """psi_K + psi_H: biased with the gaussian (psi(K) != 1), identical to the union for compact cutoffs."""
         params = example_european_call_terminal_knockout
         bench = benchmark_greeks_european_barrier_up_and_out(params)
-        kw = dict(N=self.N, seed=9, delta_strike=MALLIAVIN_FOURNIER_BARRIER_DELTA, return_stats=True)
+        kw = dict(N=self.N, seed=9, return_stats=True)
         biased = malliavin_fournier_greeks_european_barrier_up_and_out_call(
             params, cutoff_type="gaussian", cutoff_combination="sum", **kw
         )

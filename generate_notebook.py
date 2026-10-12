@@ -274,8 +274,8 @@ decoupled_deltas = {"delta": 4.0, "gamma": 10.0, "vega": 4.0}
 for s in range(n_runs):
     paths = generate_paths(params["T"], n_sims, seed=s)
     r_std = malliavin_greeks_european_call(params, N=n_sims, paths=paths)
-    r_coup = malliavin_fournier_greeks_european_call(params, N=n_sims, paths=paths, cutoff_type="gaussian", delta_strike=8.0)
-    r_decoup = malliavin_fournier_greeks_european_call(params, N=n_sims, paths=paths, cutoff_type="gaussian", delta_strike=decoupled_deltas)
+    r_coup = malliavin_fournier_greeks_european_call(params, N=n_sims, paths=paths, cutoff_type="gaussian", bandwidth=8.0)
+    r_decoup = malliavin_fournier_greeks_european_call(params, N=n_sims, paths=paths, cutoff_type="gaussian", bandwidth=decoupled_deltas)
     
     std_deltas.append(r_std["delta"])
     std_gammas.append(r_std["gamma"])
